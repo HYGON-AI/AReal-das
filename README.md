@@ -1,4 +1,4 @@
-> **DCU/HCU 适配版本说明：**
+> **DCU 适配版本说明：**
 > [安装、环境配置与训练示例](./DCU_README.md)
 
 <h1 align="center">
