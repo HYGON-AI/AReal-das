@@ -17,6 +17,10 @@ from typing import TYPE_CHECKING, Any
 import mbridge
 import torch
 import torch.distributed as dist
+
+from hcu_megatron.features_manager.transformer.dsa_feature import DSAFeature
+from hcu_megatron.patch_utils import MegatronPatchesManager
+
 from megatron.bridge import AutoBridge as MegatronBridgeAutoBridge
 from megatron.bridge.peft.lora import LoRA as MegatronBridgeLoRA
 from megatron.core import parallel_state as mpu
@@ -129,6 +133,28 @@ if TYPE_CHECKING:
     from areal.api import Scheduler
     from areal.api.cli_args import DPOEngineConfig, PPOActorConfig, PPOCriticConfig
 
+# malong: Apply only the HCU DSA patches to avoid conflicts with AReaL's Megatron initialization.
+_HCU_DSA_PATCHED = False
+def _apply_hcu_dsa_patches() -> None:
+    """Apply only the HCU DSA compatibility patches.
+
+    Do not import hcu_megatron.megatron_adaptor here because the full
+    adaptor also patches Megatron parallel_state / training argument
+    initialization, which assumes Megatron training global args exist.
+    AReaL initializes model-parallel groups directly and does not use
+    Megatron's pretrain_gpt.py initialization path.
+    """
+    global _HCU_DSA_PATCHED
+
+    if _HCU_DSA_PATCHED:
+        return
+
+    DSAFeature().register_patches(
+        MegatronPatchesManager,
+        args=None,
+    )
+    MegatronPatchesManager.apply_patches()
+    _HCU_DSA_PATCHED = True
 
 # `model.named_modules()` yields LOCAL layer indices on each PP rank, while
 # `get_named_parameters` rewrites them to GLOBAL indices via layer_offset. Strip
@@ -329,6 +355,8 @@ class MegatronEngine(TrainEngine):
             )
 
         self.tokenizer = load_hf_tokenizer(self.config.path)
+        
+        _apply_hcu_dsa_patches() # malong: Apply only DCU/HCU DSA compatibility patches.
 
         with patch_bridge_for_tree_training(
             self.enable_tree_training and self.bridge_cls == "mbridge"
