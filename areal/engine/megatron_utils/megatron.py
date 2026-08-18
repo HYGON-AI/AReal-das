@@ -1041,6 +1041,132 @@ def convert_deepseekv3_to_hf(
     raise ValueError(f"Unknown parameter name: {name}")
 
 
+# malong: add convert_glm5_to_hf for glm_moe_dsa
+def convert_glm5_to_hf(
+    tf_config: TransformerConfig,
+    name: str,
+    param: Parameter | Tensor | FP8BlockwiseTensorHelper,
+):
+    """Convert GLM-5 (glm_moe_dsa) Megatron-Core weights to HF/SGLang names.
+
+    This mirrors the local Megatron-Bridge GLM5Bridge.mapping_registry(), but is
+    intentionally stateless so it can be used by AReaL's online XCCL weight
+    update path after TP/ETP all-gather has reconstructed each full parameter.
+
+    Routed experts are emitted as per-expert HF names (gate_proj/up_proj/down_proj).
+    SGLang's DeepseekV2WeightLoaderMixin accepts these names and packs them into
+    its internal fused-MoE representation.
+    """
+    if "_extra_state" in name:
+        return []
+
+    # Global tensors.
+    if name == "module.module.embedding.word_embeddings.weight":
+        return [("model.embed_tokens.weight", param)]
+    if name == "module.module.output_layer.weight":
+        return [("lm_head.weight", param)]
+    if name == "module.module.decoder.final_layernorm.weight":
+        return [("model.norm.weight", param)]
+
+    m = re.match(r"module\.module\.decoder\.layers\.(\d+)\.(.+)", name)
+    if not m:
+        raise ValueError(f"Unknown GLM-5 parameter name: {name}")
+
+    layer_idx, rest = m.groups()
+    base = f"model.layers.{layer_idx}"
+
+    # Routed MoE experts. get_named_parameters() has already rewritten local
+    # expert ids to global ids, e.g. linear_fc1.weight37.
+    expert_match = re.match(r"mlp\.experts\.(.+)\.weight(\d+)$", rest)
+    if expert_match:
+        fc_kind, expert_idx = expert_match.groups()
+        expert_base = f"{base}.mlp.experts.{expert_idx}"
+        if fc_kind == "linear_fc1":
+            gate_weight, up_weight = param.chunk(2, dim=0)
+            return [
+                (f"{expert_base}.gate_proj.weight", gate_weight),
+                (f"{expert_base}.up_proj.weight", up_weight),
+            ]
+        if fc_kind == "linear_fc2":
+            return [(f"{expert_base}.down_proj.weight", param)]
+        raise ValueError(f"Unknown GLM-5 expert parameter name: {name}")
+
+    # Shared expert. SGLang accepts ordinary HF shared_experts names and, when
+    # shared-expert fusion is enabled, rewrites them to the extra fused expert.
+    shared_match = re.match(r"mlp\.shared_experts\.(.+)$", rest)
+    if shared_match:
+        shared_rest = shared_match.group(1)
+        shared_base = f"{base}.mlp.shared_experts"
+        if shared_rest == "linear_fc1.weight":
+            gate_weight, up_weight = param.chunk(2, dim=0)
+            return [
+                (f"{shared_base}.gate_proj.weight", gate_weight),
+                (f"{shared_base}.up_proj.weight", up_weight),
+            ]
+        if shared_rest == "linear_fc2.weight":
+            return [(f"{shared_base}.down_proj.weight", param)]
+        if shared_rest == "router.weight":
+            # Present in the local GLM5Bridge mapping. Older SGLang builds may
+            # not materialize this parameter and will safely ignore unknown keys.
+            return [(f"{shared_base}.gate.weight", param)]
+        raise ValueError(f"Unknown GLM-5 shared-expert parameter name: {name}")
+
+    # Dense MLP (the first_k_dense_replace layers).
+    if rest == "mlp.linear_fc1.weight":
+        gate_weight, up_weight = param.chunk(2, dim=0)
+        return [
+            (f"{base}.mlp.gate_proj.weight", gate_weight),
+            (f"{base}.mlp.up_proj.weight", up_weight),
+        ]
+    if rest == "mlp.linear_fc2.weight":
+        return [(f"{base}.mlp.down_proj.weight", param)]
+
+    # Norms.
+    if rest in (
+        "self_attention.linear_qkv.layer_norm_weight",
+        "input_layernorm.weight",
+    ):
+        return [(f"{base}.input_layernorm.weight", param)]
+    if rest in (
+        "pre_mlp_layernorm.weight",
+        "mlp.linear_fc1.layer_norm_weight",
+    ):
+        return [(f"{base}.post_attention_layernorm.weight", param)]
+
+    # MLA.
+    mla_map = {
+        "self_attention.linear_proj.weight": "self_attn.o_proj.weight",
+        "self_attention.linear_q_down_proj.weight": "self_attn.q_a_proj.weight",
+        "self_attention.linear_q_up_proj.weight": "self_attn.q_b_proj.weight",
+        "self_attention.linear_q_up_proj.layer_norm_weight": "self_attn.q_a_layernorm.weight",
+        "self_attention.q_layernorm.weight": "self_attn.q_a_layernorm.weight",
+        "self_attention.linear_kv_down_proj.weight": "self_attn.kv_a_proj_with_mqa.weight",
+        "self_attention.linear_kv_up_proj.weight": "self_attn.kv_b_proj.weight",
+        "self_attention.linear_kv_up_proj.layer_norm_weight": "self_attn.kv_a_layernorm.weight",
+        "self_attention.kv_layernorm.weight": "self_attn.kv_a_layernorm.weight",
+    }
+    if rest in mla_map:
+        return [(f"{base}.{mla_map[rest]}", param)]
+
+    # DSA indexer.
+    indexer_map = {
+        "self_attention.core_attention.indexer.linear_wq_b.weight": "self_attn.indexer.wq_b.weight",
+        "self_attention.core_attention.indexer.linear_wk.weight": "self_attn.indexer.wk.weight",
+        "self_attention.core_attention.indexer.k_norm.weight": "self_attn.indexer.k_norm.weight",
+        "self_attention.core_attention.indexer.k_norm.bias": "self_attn.indexer.k_norm.bias",
+        "self_attention.core_attention.indexer.linear_weights_proj.weight": "self_attn.indexer.weights_proj.weight",
+    }
+    if rest in indexer_map:
+        return [(f"{base}.{indexer_map[rest]}", param)]
+
+    # MoE router.
+    if rest == "mlp.router.weight":
+        return [(f"{base}.mlp.gate.weight", param)]
+    if rest == "mlp.router.expert_bias":
+        return [(f"{base}.mlp.gate.e_score_correction_bias", param)]
+
+    raise ValueError(f"Unknown GLM-5 parameter name: {name}")
+
 # BailingMoeV2_5 weight conversion
 #
 # BailingMoe HF uses "attention." prefix (not "self_attn.").
@@ -1253,6 +1379,7 @@ _CONVERSION_FN_REGISTRY = {
     "qwen3_moe": convert_qwen3moe_to_hf,
     "qwen2": convert_qwen2_to_hf,
     "qwen3": convert_qwen2_to_hf,
+    "glm_moe_dsa": convert_glm5_to_hf, # malong: add glm_moe_dsa support
     "deepseekv3": convert_deepseekv3_to_hf,
     "bailing_moe_v2": convert_bailingmoe_to_hf,
     "bailing_moe_linear": convert_bailingmoe_to_hf,
