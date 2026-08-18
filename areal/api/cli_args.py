@@ -1765,6 +1765,9 @@ class SGLangConfig:
     enable_memory_saver: bool = False
     allow_auto_truncate: bool = False
     attention_backend: str | None = "fa3"
+    # malong: add NSA backend configuration, as GLM5 uses NSA backend for prefill and decode
+    nsa_prefill_backend: str | None = None
+    nsa_decode_backend: str | None = None
     enable_multimodal: bool = False
     sampling_backend: str | None = None
     context_length: int | None = 32768
