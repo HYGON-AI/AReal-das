@@ -81,73 +81,94 @@ print("megatron.core:", core.__file__)
 PY
 ```
 
-## 示例脚本
+## 训练示例
 
-DCU 示例脚本位于 [`dcu_example`](./dcu_example/)：
+### 单节点训练示例
 
-| 脚本 | 用途 |
-| --- | --- |
-| `run_areal_qwen_grpo_rocm.sh` | 使用本地调度器运行 Qwen GRPO |
-| `run_areal_qwen_grpo_ray.sh` | 使用单节点 Ray 运行 Qwen GRPO |
-| `run_areal_ray_2nodes_qwen.sh` | 双节点 Qwen Ray 训练模板 |
-| `run_areal_ray_2nodes.sh` | 通用双节点 Ray 启停与训练脚本 |
-
-脚本移动到子目录后仍需从仓库根目录解析相对路径。脚本开头应包含：
-
+下面以 `Qwen3-8B + FSDP + SGLang + 单节点 8 卡` 为例。
+单节点情况下，可以直接让 `run.sh` 负责启动 Ray Head 和训练。可以更换 `fsdp` 为 `megatron`，使用 Megatron 作为训练后端。
 ```bash
-# nhb: Resolve the repository root when this script is under dcu_example.
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-AREAL_HOME="$(cd "${SCRIPT_DIR}/.." && pwd)"
-cd "${AREAL_HOME}"
-export PYTHONPATH="${AREAL_HOME}:${PYTHONPATH:-}"
+bash run.sh \
+  --model=qwen3_8b \
+  --backend=fsdp \
+  --restart-ray
 ```
 
-### 单节点 Ray
+### 多节点训练示例
+
+下面以 `Qwen3-30B-A3B + Megatron + SGLang + 多节点 Ray` 为例。对于 Qwen3-MoE 等大规模 MoE 模型，建议优先使用 Megatron 的 TP、PP、EP 等并行能力，不使用 FSDP 作为默认训练方案。
+
+假设当前有两个节点：
+
+```text
+Head:
+10.16.1.48
+8 DCU
+
+Worker:
+10.16.1.61
+8 DCU
+```
+
+所有节点必须能够访问相同的 `AReaL 源码`、`SGLang 源码`、`Megatron 源码` 和 `模型权重目录`。
+
+**在 Head 节点启动 Ray**
+
+在 `10.16.1.48` 执行：
 
 ```bash
 source /opt/areal-venv-py31115/bin/activate
-cd /home/AReaL-1.0.4
-bash dcu_example/run_areal_qwen_grpo_ray.sh
+cd "${AREAL_HOME}/dcu_example2/grpo"
+bash run.sh \
+  --ray-head \
+  --model=qwen3_30b_a3b_4layers \
+  --backend=megatron \
+  --ray-address=10.16.1.48:6379
+```
+该命令只负责启动 Ray Head，不启动训练。
+
+**Worker 节点加入 Ray**
+
+在 `10.16.1.61` 执行：
+```bash
+source /opt/areal-venv-py31115/bin/activate
+cd "${AREAL_HOME}/dcu_example2/grpo"
+bash run.sh \
+  --ray-worker \
+  --model=qwen3_30b_a3b_4layers \
+  --backend=megatron \
+  --ray-address=10.16.1.48:6379 \
+  --worker-ip=10.16.1.61
 ```
 
-启动后确认 Ray 识别的 GPU 数量与脚本中的 `N_GPUS_PER_NODE` 一致：
+如果还有第三个节点，例如 `10.16.1.62`，则在该节点执行：
 
 ```bash
-ray status
+bash run.sh \
+  --ray-worker \
+  --model=qwen3_30b_a3b_4layers \
+  --backend=megatron \
+  --ray-address=10.16.1.48:6379 \
+  --worker-ip=10.16.1.62
 ```
+**检查 Ray 集群**
 
-### 双节点 Ray
+回到 Head 节点执行：
+```bash
+ray status --address=10.16.1.48:6379
+```
+例如两个 8 卡节点，应看到总计 16 张 GPU；三个 8 卡节点则应为 24 张 GPU。在 Ray 节点数和 GPU 数量不正确时，不应启动训练。
 
-双节点必须能够访问相同的模型、AReaL 源码和共享实验目录。先在主节点启动
-Ray Head：
+**启动多节点训练**
+
+Ray 集群建立完成后，只需要在 Head 节点执行训练命令：
 
 ```bash
-cd /home/AReaL-1.0.4
-bash dcu_example/run_areal_ray_2nodes_qwen.sh head
+bash run.sh \
+  --model=qwen3_30b_a3b_4layers \
+  --backend=megatron \
+  --ray-address=10.16.1.48:6379
 ```
-
-随后在工作节点加入集群，其中 `<HEAD_IP>` 为主节点可被工作节点访问的 IP：
-
-```bash
-cd /home/AReaL-1.0.4
-bash dcu_example/run_areal_ray_2nodes_qwen.sh worker <HEAD_IP>
-```
-
-回到主节点确认两个节点均已加入，然后启动训练：
-
-```bash
-ray status
-bash dcu_example/run_areal_ray_2nodes_qwen.sh train <HEAD_IP>
-```
-
-例如每个节点提供 8 张卡时，`ray status` 应显示总计 16 张 GPU。多节点配置还应
-将以下目录设置为所有节点均可读写的共享存储：
-
-```bash
-cluster.fileroot=/shared/areal/experiments
-cluster.name_resolve.nfs_record_root=/shared/areal/name_resolve
-```
-
 ## 常用训练配置
 
 后端字符串采用 `d<DP>p<PP>t<TP>` 格式，例如：

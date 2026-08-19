@@ -867,7 +867,7 @@ class PPOTrainer:
         if cfg.type == "local":
             return LocalScheduler(exp_config=self.config)
         elif cfg.type == "ray":
-            return RayScheduler(exp_config=self.config)
+            return RayScheduler(exp_config=self.config,startup_timeout=cfg.startup_timeout)
         elif cfg.type == "slurm":
             return SlurmScheduler(exp_config=self.config)
         raise NotImplementedError(f"Unknown scheduler type: {cfg.type}")

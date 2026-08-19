@@ -1765,6 +1765,9 @@ class SGLangConfig:
     enable_memory_saver: bool = False
     allow_auto_truncate: bool = False
     attention_backend: str | None = "fa3"
+    # malong: add NSA backend configuration, as GLM5 uses NSA backend for prefill and decode
+    nsa_prefill_backend: str | None = None
+    nsa_decode_backend: str | None = None
     enable_multimodal: bool = False
     sampling_backend: str | None = None
     context_length: int | None = 32768
@@ -2562,7 +2565,13 @@ class SchedulerConfig:
     reward_functioncall_config: dict = field(default_factory=dict)
     reward_model_path: str = field(default="")
     reward_model_service_url: str = field(default="http://localhost:30000/classify")
-
+    # malong: add startup_timeout for Ray workers to start and respond to ping, as Ray workers may take a long time to start.
+    startup_timeout: float = field(
+        default=180.0,
+        metadata={
+            "help": "Timeout in seconds for Ray workers to start and respond to ping."
+        },
+    )
 
 @dataclass
 class _DatasetConfig:

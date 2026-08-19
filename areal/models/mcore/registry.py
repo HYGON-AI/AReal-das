@@ -228,9 +228,10 @@ def make_mcore_model(
 
         # LoRA params are injected after model materialization and do not carry
         # Megatron main_grad buffers required by fused grad accumulation kernels.
-        if use_lora:
-            provider.gradient_accumulation_fusion = False
-
+        # if use_lora:
+        #     provider.gradient_accumulation_fusion = False
+        provider.gradient_accumulation_fusion = False # malong: dcu disable unsupported gradient accumulation fusion
+        
         # Keep these four flags aligned with mbridge base defaults.
         provider.variable_seq_lengths = True
         logger.warning(
