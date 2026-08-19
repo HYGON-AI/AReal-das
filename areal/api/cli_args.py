@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 
 import argparse
 import json
@@ -1765,7 +1766,7 @@ class SGLangConfig:
     enable_memory_saver: bool = False
     allow_auto_truncate: bool = False
     attention_backend: str | None = "fa3"
-    # malong: add NSA backend configuration, as GLM5 uses NSA backend for prefill and decode
+    # NSA backend configuration used by GLM5 during prefill and decode.
     nsa_prefill_backend: str | None = None
     nsa_decode_backend: str | None = None
     enable_multimodal: bool = False
@@ -1776,7 +1777,7 @@ class SGLangConfig:
     # NOTE: chunked_prefill_size is by default 8192 on GPUs with 80GB mem in SGLang,
     # but we disable it to avoid precision issues
     chunked_prefill_size: int | None = -1
-    page_size: int | None = 64 #nhb
+    page_size: int | None = 64
     max_prefill_tokens: int = 32768
     schedule_policy: str = "lpm"
     schedule_conservativeness: float = 1.0
@@ -2565,7 +2566,7 @@ class SchedulerConfig:
     reward_functioncall_config: dict = field(default_factory=dict)
     reward_model_path: str = field(default="")
     reward_model_service_url: str = field(default="http://localhost:30000/classify")
-    # malong: add startup_timeout for Ray workers to start and respond to ping, as Ray workers may take a long time to start.
+    # Allow time for Ray workers to start and respond to the initial ping.
     startup_timeout: float = field(
         default=180.0,
         metadata={

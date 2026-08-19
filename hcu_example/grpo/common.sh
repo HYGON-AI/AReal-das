@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Shared helpers for DCU AReaL GRPO examples.
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+# Shared helpers for HCU AReaL GRPO examples.
 
 GRPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export AREAL_RAY_MANAGED_DEVICES=1
@@ -118,7 +120,7 @@ for node in nodes:
 if len(nodes) != expected_nodes:
     raise RuntimeError(f"Expected {expected_nodes} Ray node(s), got {len(nodes)}")
 if resources.get("GPU", 0) != expected_gpus:
-    raise RuntimeError(f"Expected {expected_gpus:g} GPUs/DCUs, got {resources.get('GPU', 0)}")
+    raise RuntimeError(f"Expected {expected_gpus:g} GPUs/HCUs, got {resources.get('GPU', 0)}")
 ray.shutdown()
 print("[OK] Ray cluster resource check passed")
 PY
@@ -151,7 +153,7 @@ grpo_print_summary() {
   echo "Actor backend:   ${ACTOR_BACKEND}"
   echo "Rollout backend: ${ROLLOUT_BACKEND}"
   echo "Nodes:           ${N_NODES}"
-  echo "DCUs/node:       ${N_GPUS_PER_NODE}"
+  echo "HCUs/node:       ${N_GPUS_PER_NODE}"
   echo "Train batch:     ${TRAIN_BATCH_SIZE}"
   echo "Valid batch:     ${VALID_BATCH_SIZE}"
   echo "Samples:         ${N_SAMPLES}"

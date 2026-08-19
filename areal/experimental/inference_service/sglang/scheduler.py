@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 """AwexSchedulerBridge: compose awex weight-update methods onto SGLang Scheduler."""
 
 from __future__ import annotations
@@ -151,7 +152,7 @@ def areal_run_scheduler_process(
 
     import psutil
     from sglang.srt.environ import envs
-    from sglang.srt.managers.scheduler import Scheduler, configure_scheduler_process #nhb
+    from sglang.srt.managers.scheduler import Scheduler, configure_scheduler_process
     from sglang.srt.observability.trace import (
         process_tracing_init,
         trace_set_thread_info,
@@ -168,7 +169,7 @@ def areal_run_scheduler_process(
     from sglang.utils import get_exception_traceback
 
     logger = logging.getLogger(__name__)
-    dp_rank = configure_scheduler_process(#nhb
+    dp_rank = configure_scheduler_process(
         server_args,
         gpu_id,
         tp_rank,

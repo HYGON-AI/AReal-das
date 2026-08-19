@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 
 import dataclasses
 from typing import Any
@@ -226,12 +227,11 @@ def make_mcore_model(
         provider.account_for_embedding_in_pipeline_split = False
         provider.account_for_loss_in_pipeline_split = False
 
-        # LoRA params are injected after model materialization and do not carry
-        # Megatron main_grad buffers required by fused grad accumulation kernels.
-        # if use_lora:
-        #     provider.gradient_accumulation_fusion = False
-        provider.gradient_accumulation_fusion = False # malong: dcu disable unsupported gradient accumulation fusion
-        
+        # LoRA parameters are injected after model materialization and do not carry
+        # the Megatron main_grad buffers required by fused grad accumulation kernels.
+        if use_lora:
+            provider.gradient_accumulation_fusion = False
+
         # Keep these four flags aligned with mbridge base defaults.
         provider.variable_seq_lengths = True
         logger.warning(

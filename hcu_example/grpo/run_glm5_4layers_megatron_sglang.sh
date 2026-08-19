@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,7 +13,7 @@ source "${SCRIPT_DIR}/common.sh"
 # ==============================================================================
 # Model / dataset
 # ==============================================================================
-MODEL_PATH="${MODEL_PATH:-/workspace/GLM-5-4Layers}"
+MODEL_PATH="${MODEL_PATH:?Set MODEL_PATH to the local model directory.}"
 TOKENIZER_PATH="${TOKENIZER_PATH:-${MODEL_PATH}}"
 DATASET_PATH="${DATASET_PATH:-openai/gsm8k}"
 
@@ -33,7 +35,7 @@ WEIGHT_UPDATE_MODE="${WEIGHT_UPDATE_MODE:-xccl}"
 # ==============================================================================
 # Experiment
 # ==============================================================================
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-glm5-4layer-dcu-2nodes-megatron}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-glm5-4layer-hcu-2nodes-megatron}"
 TRIAL_NAME="${TRIAL_NAME:-tp8-ep8-smoke}"
 TIMESTAMP="${TIMESTAMP:-$(date '+%Y%m%d-%H%M%S')}"
 LOG_DIR="${LOG_DIR:-${AREAL_RUNS_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE:-qwen}"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
 
-MODEL_PATH="${MODEL_PATH:-/workspace/Qwen2.5-0.5B}"
+MODEL_PATH="${MODEL_PATH:?Set MODEL_PATH to the local model directory.}"
 TOKENIZER_PATH="${TOKENIZER_PATH:-${MODEL_PATH}}"
 N_NODES="${N_NODES:-1}"
 N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-8}"
@@ -16,7 +18,7 @@ ACTOR_BACKEND="${ACTOR_BACKEND:-fsdp:d2p1t1}"
 ROLLOUT_BACKEND="${ROLLOUT_BACKEND:-sglang:d1p1t2}"
 WEIGHT_UPDATE_MODE="${WEIGHT_UPDATE_MODE:-xccl}"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-qwen2-5-0-5b-dcu}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-qwen2-5-0-5b-hcu}"
 TRIAL_NAME="${TRIAL_NAME:-grpo-fsdp2-sglang-tp2}"
 TIMESTAMP="${TIMESTAMP:-$(date '+%Y%m%d-%H%M%S')}"
 LOG_DIR="${LOG_DIR:-${AREAL_RUNS_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"

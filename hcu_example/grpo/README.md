@@ -2,7 +2,7 @@
 
 本目录只负责 GRPO 模型配置和统一训练入口。
 
-- 公共 Python/DCU/Megatron/SGLang 环境：`../common/common_env.sh`
+- 公共 Python/HCU/Megatron/SGLang 环境：`../common/common_env.sh`
 - Ray head/worker 生命周期：`../scripts/`
 - GRPO 公共启动流程：`common.sh`
 - 模型统一入口：`run.sh`
@@ -12,12 +12,12 @@
 
 | `--model` 名称 | Actor | Rollout | 默认资源 | profile | 状态 |
 |---|---|---|---|---|---|
-| `qwen2_5_0_5b_megatron_sglang` | Megatron TP2 | SGLang TP2 | 1×8 DCU（实际使用4） | qwen | 新增/待实机验证 |
-| `qwen3_1_7b_megatron_sglang` | Megatron TP4 | SGLang TP4 | 1×8 DCU | qwen | 已迁移 |
-| `qwen3_8b_megatron_sglang` | Megatron TP4 | SGLang TP4 | 1×8 DCU | qwen | 已运行 |
-| `qwen3_30b_a3b_4layers_megatron_sglang` | Megatron TP8 | SGLang TP8 | 2×8 DCU | qwen | 已运行基线 |
-| `qwen3_5_2b_megatron_sglang` | custom Megatron | SGLang | 1×8 DCU | qwen35 | WIP |
-| `glm5_4layers_megatron_sglang` | Megatron TP8/EP8 | SGLang TP8 | 2×8 DCU | glm5 | custom |
+| `qwen2_5_0_5b_megatron_sglang` | Megatron TP2 | SGLang TP2 | 1×8 HCU（实际使用4） | qwen | 新增/待实机验证 |
+| `qwen3_1_7b_megatron_sglang` | Megatron TP4 | SGLang TP4 | 1×8 HCU | qwen | 已迁移 |
+| `qwen3_8b_megatron_sglang` | Megatron TP4 | SGLang TP4 | 1×8 HCU | qwen | 已运行 |
+| `qwen3_30b_a3b_4layers_megatron_sglang` | Megatron TP8 | SGLang TP8 | 2×8 HCU | qwen | 已运行基线 |
+| `qwen3_5_2b_megatron_sglang` | custom Megatron | SGLang | 1×8 HCU | qwen35 | WIP |
+| `glm5_4layers_megatron_sglang` | Megatron TP8/EP8 | SGLang TP8 | 2×8 HCU | glm5 | custom |
 
 查看：
 
@@ -28,7 +28,7 @@ bash run.sh --list
 运行：
 
 ```bash
-bash run.sh --model=<name> --ray-address=<HEAD_IP>:6379
+bash run.sh --model=<name> --model-path=<path-to-model> --ray-address=<head-node-ip>:6379
 ```
 
 ## 参数职责
@@ -74,7 +74,7 @@ bash run.sh --model=qwen3_1_7b_megatron_sglang --restart-ray
 ```bash
 bash run.sh \
   --model=qwen3_1_7b_megatron_sglang \
-  --ray-address=10.16.1.61:6379 \
+  --ray-address=<head-node-ip>:6379 \
   --restart-ray
 ```
 

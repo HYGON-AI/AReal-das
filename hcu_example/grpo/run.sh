@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
 
 # export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
@@ -10,7 +12,7 @@ AREAL_ROOT_RESOLVED="${AREAL_ROOT:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}"
 
 usage() {
   cat <<'USAGE'
-AReaL DCU GRPO launcher
+AReaL HCU GRPO launcher
 
 Model/backend discovery:
   bash run.sh --list
@@ -29,15 +31,15 @@ Single-node Ray + training:
 Multi-node Ray lifecycle (run on each physical node):
   # head node
   bash run.sh --ray-head --model=qwen3_30b_a3b_4layers --backend=fsdp \
-    --ray-address=10.16.1.48:6379
+    --ray-address=<head-node-ip>:6379
 
   # worker node
   bash run.sh --ray-worker --model=qwen3_30b_a3b_4layers --backend=fsdp \
-    --ray-address=10.16.1.48:6379 --worker-ip=10.16.1.61
+    --ray-address=<head-node-ip>:6379 --worker-ip=<worker-node-ip>
 
   # then launch training from the head node
   bash run.sh --model=qwen3_30b_a3b_4layers --backend=fsdp \
-    --ray-address=10.16.1.48:6379
+    --ray-address=<head-node-ip>:6379
 
 Options:
   --model=<name>          Base model key, e.g. qwen3_8b.

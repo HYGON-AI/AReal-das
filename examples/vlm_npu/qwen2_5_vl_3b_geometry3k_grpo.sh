@@ -1,6 +1,9 @@
-export USE_OPTIMIZED_MODEL=0
-# Some models are optimized by vllm ascend. While in some case, e.g. rlhf training, 
-# the optimized model may not be suitable. In this case, set this value to 0 to disable the optimized model.
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
+export USE_OPTIMIZED_MODEL="${USE_OPTIMIZED_MODEL:-1}"
+# Use the optimized VLLM Ascend model by default. Set USE_OPTIMIZED_MODEL=0
+# only for workloads that are incompatible with the optimized implementation.
 
 python examples/vlm_npu/geometry3k_grpo.py \
     --config examples/vlm_npu/qwen2_5_vl_3b_geometry3k_grpo.yaml \

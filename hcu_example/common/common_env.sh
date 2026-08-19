@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 
-# Shared runtime environment for AReaL DCU examples.
+# Shared runtime environment for AReaL HCU examples.
 # Source this file BEFORE starting Ray so raylet/worker processes inherit the
-# same Python, SGLang and HCU/DCU environment as the training driver.
+# same Python, SGLang and HCU environment as the training driver.
 
 AREAL_COMMON_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export AREAL_EXAMPLES_ROOT="${AREAL_EXAMPLES_ROOT:-$(cd "${AREAL_COMMON_DIR}/.." && pwd)}"
@@ -14,15 +16,15 @@ export AREAL_EXAMPLES_ROOT="${AREAL_EXAMPLES_ROOT:-$(cd "${AREAL_COMMON_DIR}/.."
 #
 #   1. Values exported by the caller always win.
 #   2. Alias variables are used when the canonical variable is not exported.
-#   3. The original DCU paths are used only as defaults.
+#   3. The original HCU paths are used only as defaults.
 #
 # Examples:
 #
 #   export AREAL_HOME=/data/AReaL-1.0.4
 #   export VENV=/data/venvs/areal
-#   export MEGATRON_HOME=/data/dcu_megatron
+#   export MEGATRON_HOME=/data/hcu_megatron
 #   export SGLANG_ROOT=/data/sglang
-#   source dcu_example/common/common_env.sh
+#   source hcu_example/common/common_env.sh
 #
 # SGLANG_HOME means the Python source directory (normally <SGLANG_ROOT>/python).
 # MEGATRON_HOME means the directory containing Megatron-LM and Megatron-Bridge.
@@ -47,7 +49,7 @@ if [[ -n "${VENV:-}" ]]; then
 elif [[ -n "${VENV_PATH:-}" ]]; then
   export VENV="${VENV_PATH}"
 else
-  export VENV="/opt/areal-venv-py31115"
+  export VENV="${AREAL_HOME}/.venv"
 fi
 export VENV_PATH="${VENV}"
 export PYTHON_BIN="${PYTHON_BIN:-${VENV}/bin/python}"
@@ -58,7 +60,7 @@ if [[ -n "${MEGATRON_HOME:-}" ]]; then
 elif [[ -n "${MEGATRON_ROOT:-}" ]]; then
   export MEGATRON_HOME="${MEGATRON_ROOT}"
 else
-  export MEGATRON_HOME="/workspace/dcu_megatron"
+  export MEGATRON_HOME="${BASE_DIR}/hcu_megatron"
 fi
 export MEGATRON_ROOT="${MEGATRON_HOME}"
 
@@ -68,7 +70,7 @@ export MEGATRON_ROOT="${MEGATRON_HOME}"
 if [[ -n "${SGLANG_HOME:-}" ]]; then
   export SGLANG_ROOT="${SGLANG_ROOT:-$(dirname -- "${SGLANG_HOME}")}"
 else
-  export SGLANG_ROOT="${SGLANG_ROOT:-/workspace/sglang}"
+  export SGLANG_ROOT="${SGLANG_ROOT:-${BASE_DIR}/sglang}"
   export SGLANG_HOME="${SGLANG_ROOT}/python"
 fi
 
@@ -131,7 +133,7 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export RAY_DEDUP_LOGS="${RAY_DEDUP_LOGS:-0}"
 export RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO="${RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO:-0}"
 export PYTORCH_ALLOC_CONF="${PYTORCH_ALLOC_CONF:-expandable_segments:True}"
-# Some DCU/PyTorch builds still read the legacy CUDA-named alias on ROCm/HIP.
+# Some HCU/PyTorch builds still read the legacy CUDA-named alias on ROCm/HIP.
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-${PYTORCH_ALLOC_CONF}}"
 
 # -----------------------------------------------------------------------------
@@ -142,9 +144,9 @@ export TEMP="${TEMP:-${TMPDIR}}"
 export TMP="${TMP:-${TMPDIR}}"
 
 # Keep run outputs, transient coordination files, and compiler caches separate.
-export AREAL_RUNS_ROOT="${AREAL_RUNS_ROOT:-/workspace/areal_runs}"
-export AREAL_RUNTIME_ROOT="${AREAL_RUNTIME_ROOT:-/workspace/areal_runtime}"
-export AREAL_CACHE_ROOT="${AREAL_CACHE_ROOT:-/workspace/areal_cache}"
+export AREAL_RUNS_ROOT="${AREAL_RUNS_ROOT:-${BASE_DIR}/areal_runs}"
+export AREAL_RUNTIME_ROOT="${AREAL_RUNTIME_ROOT:-${BASE_DIR}/areal_runtime}"
+export AREAL_CACHE_ROOT="${AREAL_CACHE_ROOT:-${BASE_DIR}/areal_cache}"
 
 export RUN_ROOT="${RUN_ROOT:-${AREAL_RUNTIME_ROOT}}"
 export FILER_ROOT="${FILER_ROOT:-${AREAL_RUNTIME_ROOT}/experiments}"
@@ -174,12 +176,12 @@ case "${RAY_TMPDIR}" in
 esac
 
 # -----------------------------------------------------------------------------
-# DCU / SGLang common environment
+# HCU / SGLang common environment
 # -----------------------------------------------------------------------------
 # These are common to the two known-working Qwen launchers. Model-specific
 # SGLang CLI options (context length, chunked prefill size, attention backend,
 # NSA/MLA backend, etc.) intentionally stay in each run script.
-export USE_DCU_CUSTOM_ALLREDUCE="${USE_DCU_CUSTOM_ALLREDUCE:-1}"
+export USE_HCU_CUSTOM_ALLREDUCE="${USE_HCU_CUSTOM_ALLREDUCE:-1}"
 export SGL_CHUNKED_PREFIX_CACHE_THRESHOLD="${SGL_CHUNKED_PREFIX_CACHE_THRESHOLD:-0}"
 export SGLANG_CHUNKED_PREFIX_CACHE_THRESHOLD="${SGLANG_CHUNKED_PREFIX_CACHE_THRESHOLD:-0}"
 export SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT="${SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT:-1200}"
@@ -205,6 +207,8 @@ export HIP_D2H_HSAAPI_COPY_THRESHOLD="${HIP_D2H_HSAAPI_COPY_THRESHOLD:-512}"
 # -----------------------------------------------------------------------------
 # Model family profile
 # -----------------------------------------------------------------------------
+# torch.compile remains enabled by default. Set TORCH_COMPILE_DISABLE=1 and
+# TORCHDYNAMO_DISABLE=1 only for a model- or runtime-specific workaround.
 AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE:-qwen}"
 export AREAL_ENV_PROFILE
 
@@ -215,23 +219,17 @@ case "${AREAL_ENV_PROFILE}" in
     # Required by the known-working Qwen3 SGLang launchers in this package.
     export SGLANG_ENABLE_SPEC_V2="${SGLANG_ENABLE_SPEC_V2:-1}"
     export SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO="${SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO:-1}"
-    export TORCH_COMPILE_DISABLE="${TORCH_COMPILE_DISABLE:-1}"
-    export TORCHDYNAMO_DISABLE="${TORCHDYNAMO_DISABLE:-1}"
     ;;
   qwen35)
     # Qwen3.5 uses the same SGLang speculative-v2 environment as Qwen3, but
-    # the current DCU Megatron GatedDeltaNet path must not enter torch.compile.
+    # set TORCH_COMPILE_DISABLE=1 and TORCHDYNAMO_DISABLE=1 if the runtime requires it.
     export SGLANG_ENABLE_SPEC_V2="${SGLANG_ENABLE_SPEC_V2:-1}"
     export SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO="${SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO:-1}"
-    export TORCH_COMPILE_DISABLE="${TORCH_COMPILE_DISABLE:-1}"
-    export TORCHDYNAMO_DISABLE="${TORCHDYNAMO_DISABLE:-1}"
     ;;
   glm5)
     # GLM5/MLA path is intentionally different from Qwen's speculative-v2 path.
     unset SGLANG_ENABLE_SPEC_V2 || true
     unset SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO || true
-    export TORCH_COMPILE_DISABLE="${TORCH_COMPILE_DISABLE:-1}"
-    export TORCHDYNAMO_DISABLE="${TORCHDYNAMO_DISABLE:-1}"
     export HF_HOME="${HF_HOME:-${BASE_DIR}/hf_cache}"
     export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${HF_HOME}/datasets}"
     export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-${HF_HOME}/transformers}"
@@ -268,7 +266,7 @@ fi
 areal_preflight_common() {
   local failed=0
 
-  echo "===== AReaL DCU preflight ====="
+  echo "===== AReaL HCU preflight ====="
 
   for dir in \
     "${AREAL_HOME}" \
@@ -320,18 +318,18 @@ if getattr(torch.version, "hip", None) is None:
     print("[ERROR] This example expects a ROCm/HIP PyTorch build.", file=sys.stderr)
     raise SystemExit(1)
 count = torch.cuda.device_count()
-print(f"[INFO] visible DCU/GPU count before Ray: {count}")
+print(f"[INFO] visible HCU/GPU count before Ray: {count}")
 if count <= 0:
-    print("[ERROR] PyTorch cannot see any DCU/GPU device.", file=sys.stderr)
+    print("[ERROR] PyTorch cannot see any HCU/GPU device.", file=sys.stderr)
     raise SystemExit(1)
 PY_INNER
 
   if [[ "${failed}" != "0" ]]; then
-    echo "[ERROR] AReaL DCU preflight failed." >&2
+    echo "[ERROR] AReaL HCU preflight failed." >&2
     return 2
   fi
 
-  echo "[OK] AReaL DCU preflight passed."
+  echo "[OK] AReaL HCU preflight passed."
 }
 
 # Lightweight validation helper. It verifies that driver and Ray daemons can
@@ -391,7 +389,7 @@ areal_save_env_snapshot() {
       AREAL_RUNS_ROOT AREAL_RUNTIME_ROOT AREAL_CACHE_ROOT FILER_ROOT NAME_RESOLVE_ROOT \
       TMPDIR XDG_CACHE_HOME TORCHINDUCTOR_CACHE_DIR TRITON_CACHE_DIR TORCH_EXTENSIONS_DIR \
       PYTORCH_ALLOC_CONF PYTORCH_CUDA_ALLOC_CONF \
-      USE_DCU_CUSTOM_ALLREDUCE SGL_CHUNKED_PREFIX_CACHE_THRESHOLD \
+      USE_HCU_CUSTOM_ALLREDUCE SGL_CHUNKED_PREFIX_CACHE_THRESHOLD \
       SGLANG_CHUNKED_PREFIX_CACHE_THRESHOLD SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT \
       SGLANG_SET_CPU_AFFINITY SGLANG_ENABLE_SPEC_V2 SGLANG_KVALLOC_KERNEL \
       SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO SGLANG_ASSIGN_EXTEND_CACHE_LOCS \
@@ -422,7 +420,7 @@ areal_validate_ray_worker_env() {
   EXPECTED_SGLANG_HOME="${SGLANG_HOME}" \
   EXPECTED_MEGATRON_LM="${MEGATRON_HOME}/Megatron-LM" \
   EXPECTED_AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE}" \
-  EXPECTED_USE_DCU_CUSTOM_ALLREDUCE="${USE_DCU_CUSTOM_ALLREDUCE:-}" \
+  EXPECTED_USE_HCU_CUSTOM_ALLREDUCE="${USE_HCU_CUSTOM_ALLREDUCE:-}" \
   EXPECTED_SGLANG_SET_CPU_AFFINITY="${SGLANG_SET_CPU_AFFINITY:-}" \
   EXPECTED_SGLANG_ENABLE_SPEC_V2="${SGLANG_ENABLE_SPEC_V2:-}" \
   EXPECTED_SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO="${SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO:-}" \
@@ -464,7 +462,7 @@ def probe():
             name: os.environ.get(name)
             for name in [
                 "AREAL_ENV_PROFILE",
-                "USE_DCU_CUSTOM_ALLREDUCE",
+                "USE_HCU_CUSTOM_ALLREDUCE",
                 "SGLANG_SET_CPU_AFFINITY",
                 "SGLANG_ENABLE_SPEC_V2",
                 "SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO",
@@ -502,7 +500,7 @@ ray.shutdown()
 
 expected_selected_env = {
     "AREAL_ENV_PROFILE": os.environ.get("EXPECTED_AREAL_ENV_PROFILE", ""),
-    "USE_DCU_CUSTOM_ALLREDUCE": os.environ.get("EXPECTED_USE_DCU_CUSTOM_ALLREDUCE", ""),
+    "USE_HCU_CUSTOM_ALLREDUCE": os.environ.get("EXPECTED_USE_HCU_CUSTOM_ALLREDUCE", ""),
     "SGLANG_SET_CPU_AFFINITY": os.environ.get("EXPECTED_SGLANG_SET_CPU_AFFINITY", ""),
     "SGLANG_ENABLE_SPEC_V2": os.environ.get("EXPECTED_SGLANG_ENABLE_SPEC_V2", ""),
     "SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO": os.environ.get("EXPECTED_SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO", ""),

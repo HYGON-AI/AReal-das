@@ -31,7 +31,7 @@ cloudpickle==3.1.2
 colorlog==6.10.1
 compressed-tensors==0.15.0.1
 datasets==5.0.0
-dcu-megatron==0.15.0+das.opt1.dtk2604
+hcu-megatron==0.15.0+das.opt1.dtk2604
 decorator==5.3.1
 deepgemm==2.1.0+das.dtk2604.torch290.2605121546.ge18e24
 dill==0.4.1

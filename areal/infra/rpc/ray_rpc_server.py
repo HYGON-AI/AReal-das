@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 
 import os
 import traceback
@@ -98,25 +99,6 @@ class RayRPCServer:
                 seeding.set_random_seed(config.seed, key=f"{role}{rank}")
                 break
         self.logger.info(f"RayRPCServer configured for role role={role}, rank={rank}")
-
-
-        # props = None #nhb
-        # if torch.cuda.is_available() and torch.cuda.device_count() > 0:
-        #     props = torch.cuda.get_device_properties(0)
-
-        # self.logger.info(
-        #     "NHBDebug role=%s rank=%s CUDA_VISIBLE_DEVICES=%s "
-        #     "HIP_VISIBLE_DEVICES=%s ROCR_VISIBLE_DEVICES=%s "
-        #     "torch_count=%s pci_bus_id=%s uuid=%s",
-        #     role,
-        #     rank,
-        #     os.environ.get("CUDA_VISIBLE_DEVICES"),
-        #     os.environ.get("HIP_VISIBLE_DEVICES"),
-        #     os.environ.get("ROCR_VISIBLE_DEVICES"),
-        #     torch.cuda.device_count(),
-        #     getattr(props, "pci_bus_id", None),
-        #     getattr(props, "uuid", None),
-        # )
 
     def set_env(self, env: dict[str, str]) -> None:
         for k, v in env.items():

@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 
 import functools
-import os  # nhb: torch profiler output control
+import os
 from typing import Any
 
 import torch
@@ -49,7 +50,7 @@ class PPOActor:
         self.reward_bias = config.reward_bias
         self.reward_scaling = config.reward_scaling
         self.reward_clip = config.reward_clip
-        self.torch_profile_done = False #nhb
+        self.torch_profile_done = False
         self.torch_profile_update = 0
         self.kl_ctl = config.kl_ctl
         self.kl_estimator = KLEstimator(config.kl_estimator)
@@ -252,9 +253,8 @@ class PPOActor:
 
     @trace_perf("ppo_actor.ppo_update", category="compute")
     @stats_tracker.scope_func_wrapper("ppo_actor")
-    def ppo_update(self, data: list[dict[str, Any]]) -> None: #nhb
-        #batched_call(self._ppo_update, data, unpack=False)
-        # nhb: Profile one real PPO update inside the remote actor process.
+    def ppo_update(self, data: list[dict[str, Any]]) -> None:
+        # Profile one real PPO update inside the remote actor process.
         profile_dir = os.environ.get("AREAL_TORCH_PROF_DIR")
         rank = (
             torch.distributed.get_rank()

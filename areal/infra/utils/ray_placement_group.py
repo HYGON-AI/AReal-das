@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 
 import abc
 from dataclasses import dataclass, field
@@ -19,7 +20,9 @@ from areal.utils import logging
 
 logger = logging.getLogger("RayPlacementGroup")
 
-MAIN_WORKER_GPU_FRAC_FOR_COLOCATION = 0.8 #nhb --- for colocation scenarios, we can specify a fraction of the total GPUs in the placement group to allocate to the main worker (e.g. training worker or rollout instance), and the rest will be available for child tasks. By default we set this to 1, meaning the main worker gets all the GPUs in its bundle, and child tasks will have to share and contend for those GPUs. Setting this to a value < 1 allows child tasks to have some guaranteed GPU resources, but may lead to underutilization if the main worker doesn't fully use its allocated GPUs. The optimal value may depend on the workload and how much GPU contention there is between the main worker and child tasks.
+# Reserve part of each colocated bundle for child tasks while keeping most
+# accelerator resources available to the primary training or rollout worker.
+MAIN_WORKER_GPU_FRAC_FOR_COLOCATION = 0.8
 
 
 def ray_resource_type():

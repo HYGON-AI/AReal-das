@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +23,7 @@ source "${SCRIPT_DIR}/common.sh"
 # sglang.page_size, because page_size is not part of upstream v1.0.4 SGLangConfig.
 # ============================================================================
 
-MODEL_PATH="${MODEL_PATH:-/workspace/Qwen2.5-0.5B}"
+MODEL_PATH="${MODEL_PATH:?Set MODEL_PATH to the local model directory.}"
 TOKENIZER_PATH="${TOKENIZER_PATH:-${MODEL_PATH}}"
 
 N_NODES="${N_NODES:-1}"
@@ -34,7 +36,7 @@ ROLLOUT_BACKEND="${ROLLOUT_BACKEND:-sglang:d1p1t2}"
 WEIGHT_UPDATE_MODE="${WEIGHT_UPDATE_MODE:-xccl}"
 MEGATRON_BRIDGE_TYPE="${MEGATRON_BRIDGE_TYPE:-mbridge}"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-qwen2-5-0-5b-dcu}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-qwen2-5-0-5b-hcu}"
 TRIAL_NAME="${TRIAL_NAME:-grpo-megatron-tp2-sglang-tp2}"
 TIMESTAMP="${TIMESTAMP:-$(date '+%Y%m%d-%H%M%S')}"
 LOG_DIR="${LOG_DIR:-${AREAL_RUNS_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
@@ -49,7 +51,7 @@ TOTAL_TRAIN_EPOCHS="${TOTAL_TRAIN_EPOCHS:-1}"
 # Empty means follow total_train_epochs. Example smoke run: TOTAL_TRAIN_STEPS=20.
 TOTAL_TRAIN_STEPS="${TOTAL_TRAIN_STEPS:-10}"
 
-# DCU-safe SGLang settings. All keys below exist in upstream AReaL v1.0.4.
+# HCU-safe SGLang settings. All keys below exist in upstream AReaL v1.0.4.
 SGLANG_MEM_FRACTION_STATIC="${SGLANG_MEM_FRACTION_STATIC:-0.4}"
 SGLANG_CHUNKED_PREFILL_SIZE="${SGLANG_CHUNKED_PREFILL_SIZE:--1}"
 SGLANG_ATTENTION_BACKEND="${SGLANG_ATTENTION_BACKEND:-fa3}"

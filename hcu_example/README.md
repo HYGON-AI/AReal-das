@@ -1,6 +1,6 @@
-# AReaL v1.0.4 DCU Example 使用说明
+# AReaL v1.0.4 HCU Example 使用说明
 
-本目录提供 AReaL在 DCU 环境下运行 GRPO 训练的示例脚本，训练侧支持 Megatron 和 PyTorch FSDP2，推理侧统一使用 SGLang。
+本目录提供 AReaL在 HCU 环境下运行 GRPO 训练的示例脚本，训练侧支持 Megatron 和 PyTorch FSDP2，推理侧统一使用 SGLang。
 
 ---
 
@@ -10,7 +10,7 @@
 
 ```text
 <AREAL_HOME>/
-└── dcu_example/
+└── hcu_example/
     ├── README.md
     ├── env.yaml
     ├── common/
@@ -49,8 +49,8 @@
 
 ```text
 <VENV_PATH>               Python 3.11 虚拟环境
-<AREAL_HOME>               DCU_AReaL 源码根目录
-<MEGATRON_HOME>            dcu_megatron 根目录
+<AREAL_HOME>               HCU_AReaL 源码根目录
+<MEGATRON_HOME>            hcu_megatron 根目录
 <SGLANG_ROOT>              SGLang 源码根目录
 <MODEL_PATH>               模型权重目录
 <SHARED_RUNTIME_ROOT>      多节点共享运行目录
@@ -62,7 +62,7 @@
 公共环境由：
 
 ```text
-dcu_example/common/common_env.sh
+hcu_example/common/common_env.sh
 ```
 
 统一设置。Ray head、Ray worker、AReaL Actor 和 SGLang rollout 都会继承 Ray daemon 启动时的环境，所以源码路径必须在启动 Ray **之前** 配置正确。最常见的问题不是训练脚本参数本身，而是 Ray worker 仍然导入了旧目录下的 AReaL、Megatron 或 SGLang。
@@ -87,7 +87,7 @@ bash run.sh \
 | `AREAL_ROOT` | AReaL 源码根目录，通常与 `AREAL_HOME` 相同 |
 | `VENV` / `VENV_PATH` | Python 虚拟环境 |
 | `PYTHON_BIN` | Ray worker 和训练使用的 Python |
-| `MEGATRON_HOME` / `MEGATRON_ROOT` | DCU Megatron 源码根目录 |
+| `MEGATRON_HOME` / `MEGATRON_ROOT` | HCU Megatron 源码根目录 |
 | `SGLANG_ROOT` | SGLang 仓库根目录 |
 | `SGLANG_HOME` | SGLang Python 源码目录，一般为 `<SGLANG_ROOT>/python` |
 | `PYTHONPATH` | AReaL、Megatron、Megatron-Bridge 和 SGLang 的源码搜索路径 |
@@ -129,7 +129,7 @@ export NAME_RESOLVE_ROOT="${AREAL_RUNTIME_ROOT}/name_resolve"
 | `MODEL_PATH` | 模型目录 |
 | `TOKENIZER_PATH` | tokenizer 目录，通常与模型目录相同 |
 | `N_NODES` | 训练期望的 Ray 节点数 |
-| `N_GPUS_PER_NODE` | 每节点注册的 DCU 数 |
+| `N_GPUS_PER_NODE` | 每节点注册的 HCU 数 |
 | `ACTOR_BACKEND` | Actor 并行拓扑 |
 | `ROLLOUT_BACKEND` | SGLang rollout 并行拓扑 |
 | `TRAIN_BATCH_SIZE` | train dataloader batch |
@@ -175,7 +175,7 @@ bash run.sh \
 | `qwen3_30b_a3b_4layers` | 不提供 | 支持 | MoE，使用 Megatron |
 | `glm5_4layers` | 不提供 | 支持 | MoE/MLA/DSA，使用 Megatron |
 
-对于 Qwen3-30B-A3B 和 GLM-5，后续如果重新引入 PyTorch-native MoE 训练方案，应单独评估模型架构、expert 权重布局、DCU kernel 和 SGLang 在线权重更新，不建议恢复之前的 FSDP launcher 后直接用于正式训练。
+对于 Qwen3-30B-A3B 和 GLM-5，后续如果重新引入 PyTorch-native MoE 训练方案，应单独评估模型架构、expert 权重布局、HCU kernel 和 SGLang 在线权重更新，不建议恢复之前的 FSDP launcher 后直接用于正式训练。
 
 ---
 
@@ -184,7 +184,7 @@ bash run.sh \
 进入统一入口目录：
 
 ```bash
-cd <AREAL_HOME>/dcu_example/grpo
+cd <AREAL_HOME>/hcu_example/grpo
 ```
 
 首先可以执行：
@@ -311,19 +311,19 @@ bash run.sh \
   --ray-address=<HEAD_IP>:<RAY_PORT>
 ```
 
-一般不建议长期关闭 cleanup，因为上一次异常退出留下的 SGLang scheduler 或 model worker 可能继续占用 DCU 显存。
+一般不建议长期关闭 cleanup，因为上一次异常退出留下的 SGLang scheduler 或 model worker 可能继续占用 HCU 显存。
 
 ---
 
 # 10. 单节点训练完整示例：Qwen3-8B FSDP
 
-下面用 Qwen3-8B 演示一次完整的单节点训练流程。假设当前节点有 8 张 DCU，模型目录为 `<QWEN3_8B_MODEL_PATH>`，AReaL 示例目录为 `<AREAL_HOME>/dcu_example/grpo`。
+下面用 Qwen3-8B 演示一次完整的单节点训练流程。假设当前节点有 8 张 HCU，模型目录为 `<QWEN3_8B_MODEL_PATH>`，AReaL 示例目录为 `<AREAL_HOME>/hcu_example/grpo`。
 
 首先进入环境并查看模型：
 
 ```bash
 source <VENV_PATH>/bin/activate
-cd <AREAL_HOME>/dcu_example/grpo
+cd <AREAL_HOME>/hcu_example/grpo
 
 bash run.sh --model=qwen3_8b --backends
 bash run.sh --model=qwen3_8b --backend=fsdp --info
@@ -392,7 +392,7 @@ Qwen3-30B-A3B 当前只保留 Megatron + SGLang。下面假设训练需要两个
 
 ```bash
 source <VENV_PATH>/bin/activate
-cd <AREAL_HOME>/dcu_example/grpo
+cd <AREAL_HOME>/hcu_example/grpo
 
 bash run.sh \
   --ray-head \
@@ -409,7 +409,7 @@ bash run.sh \
 
 ```bash
 source <VENV_PATH>/bin/activate
-cd <AREAL_HOME>/dcu_example/grpo
+cd <AREAL_HOME>/hcu_example/grpo
 
 bash run.sh \
   --ray-worker \
@@ -577,13 +577,13 @@ runtime_env.txt
 在正式训练前，可以直接运行：
 
 ```bash
-cd <AREAL_HOME>/dcu_example
+cd <AREAL_HOME>/hcu_example
 
 AREAL_ENV_PROFILE=<qwen|qwen35|glm5|base> \
 bash scripts/check_env.sh
 ```
 
-至少应确认 Python、AReaL、Megatron、SGLang 均来自预期源码路径，并且 PyTorch 可以看到正确数量的 DCU。
+至少应确认 Python、AReaL、Megatron、SGLang 均来自预期源码路径，并且 PyTorch 可以看到正确数量的 HCU。
 
 也可以手工检查：
 
@@ -609,7 +609,7 @@ PY
 
 ## 18.1 `ModuleNotFoundError: No module named 'areal'`
 
-先检查 `PYTHON_BIN` 和 `PYTHONPATH` 是否来自当前 DCU 环境。Ray worker 使用的是 Ray daemon 启动时继承的环境，因此即使当前 shell 已经能 `import areal`，旧 Ray worker 仍可能继续使用错误路径。修改环境后停止并重新启动 Ray。
+先检查 `PYTHON_BIN` 和 `PYTHONPATH` 是否来自当前 HCU 环境。Ray worker 使用的是 Ray daemon 启动时继承的环境，因此即使当前 shell 已经能 `import areal`，旧 Ray worker 仍可能继续使用错误路径。修改环境后停止并重新启动 Ray。
 
 ## 18.2 Ray 只能看到一个节点
 

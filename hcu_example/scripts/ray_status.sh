@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,7 +49,7 @@ if expected_nodes and len(nodes) != int(expected_nodes):
     raise RuntimeError(f"Expected {expected_nodes} Ray nodes, got {len(nodes)}")
 
 if expected_gpus and resources.get("GPU", 0) != float(expected_gpus):
-    raise RuntimeError(f"Expected {expected_gpus} GPUs/DCUs, got {resources.get('GPU', 0)}")
+    raise RuntimeError(f"Expected {expected_gpus} GPUs/HCUs, got {resources.get('GPU', 0)}")
 
 @ray.remote(num_gpus=0)
 def env_probe():

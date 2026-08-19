@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 
 import functools
 import inspect
@@ -1041,7 +1042,7 @@ def convert_deepseekv3_to_hf(
     raise ValueError(f"Unknown parameter name: {name}")
 
 
-# malong: add convert_glm5_to_hf for glm_moe_dsa
+# Convert GLM5 DSA checkpoints to Hugging Face format.
 def convert_glm5_to_hf(
     tf_config: TransformerConfig,
     name: str,
@@ -1379,7 +1380,7 @@ _CONVERSION_FN_REGISTRY = {
     "qwen3_moe": convert_qwen3moe_to_hf,
     "qwen2": convert_qwen2_to_hf,
     "qwen3": convert_qwen2_to_hf,
-    "glm_moe_dsa": convert_glm5_to_hf, # malong: add glm_moe_dsa support
+    "glm_moe_dsa": convert_glm5_to_hf,
     "deepseekv3": convert_deepseekv3_to_hf,
     "bailing_moe_v2": convert_bailingmoe_to_hf,
     "bailing_moe_linear": convert_bailingmoe_to_hf,

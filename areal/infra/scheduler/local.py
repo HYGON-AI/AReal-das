@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 
 import asyncio
 import getpass
@@ -744,7 +745,7 @@ class LocalScheduler(Scheduler):
                 #     env[current_platform.device_control_env_var] = ",".join(
                 #         map(str, gpu_devices)
                 #     )
-                if current_platform.device_control_env_var: #nhb
+                if current_platform.device_control_env_var:
                     visible_devices = ",".join(map(str, gpu_devices))
                     env[current_platform.device_control_env_var] = visible_devices
                     env["HIP_VISIBLE_DEVICES"] = visible_devices

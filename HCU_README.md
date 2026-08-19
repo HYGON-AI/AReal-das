@@ -1,6 +1,6 @@
-# AReaL DCU 使用说明
+# AReaL HCU 使用说明
 
-本文档介绍 AReaL 在 DCU 环境中的安装、配置和训练方法。上游项目的
+本文档介绍 AReaL 在 HCU 环境中的安装、配置和训练方法。上游项目的
 完整功能说明请参阅[官方 README](./README.md)。
 
 ## 环境要求
@@ -9,13 +9,13 @@
 
 - Python 3.11.15
 - DTK 2604
-- PyTorch、Triton、Transformer Engine 和 Flash Attention 的 DCU 定制版本
+- PyTorch、Triton、Transformer Engine 和 Flash Attention 的 HCU 定制版本
 - Ray 单节点或多节点调度
 - SGLang 推理后端
 - FSDP 或 Megatron 训练后端
 
-`requirements-dcu.txt` 是已验证环境的软件包快照。带有 DCU 定制版本号的
-软件包通常无法从官方 PyPI 获取，需要先配置组织内部的 DCU Python 软件源或
+`requirements-hcu.txt` 是已验证环境的软件包快照。带有 HCU 定制版本号的
+软件包通常无法从官方 PyPI 获取，需要先配置组织内部的 HCU Python 软件源或
 准备对应 wheel。
 
 ## 安装依赖
@@ -23,12 +23,15 @@
 建议创建独立的 Python 3.11 虚拟环境：
 
 ```bash
-python3.11 -m venv /opt/areal-venv-py31115
-source /opt/areal-venv-py31115/bin/activate
+export VENV="${VENV:-$HOME/.venvs/areal}"
+python3.11 -m venv "${VENV}"
+source "${VENV}/bin/activate"
 
 python -m pip install --upgrade pip
-python -m pip install -r requirements-dcu.txt
+python -m pip install -r requirements-hcu.txt
 ```
+
+> 运行 `glm_moe_dsa`（GLM5 DSA）模型时才需要 `hcu_megatron`。AReaL 对其他模型和后端采用条件导入，不会因为未安装该可选包而无法启动。
 
 安装完成后检查关键组件：
 
@@ -49,19 +52,19 @@ PY
 
 ## 源码配置
 
-AReaL 的 DCU 环境使用以下适配源码：
+AReaL 的 HCU 环境使用以下适配源码：
 
-- [SGLang DCU 源码](https://developer.sourcefind.cn/codes/OpenDAS/sglang)
-- [DCU Megatron-LM/Megatron-Bridge 源码](http://42.228.13.241:10068/dcutoolkit/deeplearing/dcu_megatron)
+- [SGLang HCU 源码](https://developer.sourcefind.cn/codes/OpenDAS/sglang)
+- HCU Megatron-LM/Megatron-Bridge 源码：请替换为与你的 DTK 版本匹配的公开发布地址或组织镜像。
 
 AReaL、SGLang、Megatron-LM 和 Megatron-Bridge 使用源码运行时，可按实际安装
 位置设置：
 
 ```bash
-export AREAL_HOME=/home/AReaL-1.0.4
-export SGLANG_HOME=/home/sglang_v0.5.12
-export MEGATRON_HOME=/home/dcu_megatron/Megatron-LM
-export MEGATRON_BRIDGE_HOME=/home/dcu_megatron/Megatron-Bridge
+export AREAL_HOME=/path/to/AReaL
+export SGLANG_HOME=/path/to/sglang
+export MEGATRON_HOME=/path/to/hcu_megatron/Megatron-LM
+export MEGATRON_BRIDGE_HOME=/path/to/hcu_megatron/Megatron-Bridge
 
 export PYTHONPATH="${AREAL_HOME}:${MEGATRON_BRIDGE_HOME}/src:${MEGATRON_HOME}:${SGLANG_HOME}/python:${PYTHONPATH:-}"
 cd "${AREAL_HOME}"
@@ -91,6 +94,7 @@ PY
 bash run.sh \
   --model=qwen3_8b \
   --backend=fsdp \
+  --model-path=<path-to-model> \
   --restart-ray
 ```
 
@@ -102,60 +106,60 @@ bash run.sh \
 
 ```text
 Head:
-10.16.1.48
-8 DCU
+<head-node-ip>
+8 HCU
 
 Worker:
-10.16.1.61
-8 DCU
+<worker-node-ip>
+8 HCU
 ```
 
 所有节点必须能够访问相同的 `AReaL 源码`、`SGLang 源码`、`Megatron 源码` 和 `模型权重目录`。
 
 **在 Head 节点启动 Ray**
 
-在 `10.16.1.48` 执行：
+在 `<head-node-ip>` 执行：
 
 ```bash
-source /opt/areal-venv-py31115/bin/activate
-cd "${AREAL_HOME}/dcu_example2/grpo"
+source ${VENV}/bin/activate
+cd "${AREAL_HOME}/hcu_example/grpo"
 bash run.sh \
   --ray-head \
   --model=qwen3_30b_a3b_4layers \
   --backend=megatron \
-  --ray-address=10.16.1.48:6379
+  --ray-address=<head-node-ip>:6379
 ```
 该命令只负责启动 Ray Head，不启动训练。
 
 **Worker 节点加入 Ray**
 
-在 `10.16.1.61` 执行：
+在 `<worker-node-ip>` 执行：
 ```bash
-source /opt/areal-venv-py31115/bin/activate
-cd "${AREAL_HOME}/dcu_example2/grpo"
+source ${VENV}/bin/activate
+cd "${AREAL_HOME}/hcu_example/grpo"
 bash run.sh \
   --ray-worker \
   --model=qwen3_30b_a3b_4layers \
   --backend=megatron \
-  --ray-address=10.16.1.48:6379 \
-  --worker-ip=10.16.1.61
+  --ray-address=<head-node-ip>:6379 \
+  --worker-ip=<worker-node-ip>
 ```
 
-如果还有第三个节点，例如 `10.16.1.62`，则在该节点执行：
+如果还有第三个节点，例如 `<additional-worker-node-ip>`，则在该节点执行：
 
 ```bash
 bash run.sh \
   --ray-worker \
   --model=qwen3_30b_a3b_4layers \
   --backend=megatron \
-  --ray-address=10.16.1.48:6379 \
-  --worker-ip=10.16.1.62
+  --ray-address=<head-node-ip>:6379 \
+  --worker-ip=<additional-worker-node-ip>
 ```
 **检查 Ray 集群**
 
 回到 Head 节点执行：
 ```bash
-ray status --address=10.16.1.48:6379
+ray status --address=<head-node-ip>:6379
 ```
 例如两个 8 卡节点，应看到总计 16 张 GPU；三个 8 卡节点则应为 24 张 GPU。在 Ray 节点数和 GPU 数量不正确时，不应启动训练。
 
@@ -167,7 +171,7 @@ Ray 集群建立完成后，只需要在 Head 节点执行训练命令：
 bash run.sh \
   --model=qwen3_30b_a3b_4layers \
   --backend=megatron \
-  --ray-address=10.16.1.48:6379
+  --ray-address=<head-node-ip>:6379
 ```
 ## 常用训练配置
 
@@ -193,7 +197,7 @@ actor.optimizer.type=adam_bf16
 示例补丁支持通过环境变量抓取指定 Actor rank 的一次 PPO 更新：
 
 ```bash
-export AREAL_TORCH_PROF_DIR=/home/areal_runs/profiles/${TRIAL_NAME}
+export AREAL_TORCH_PROF_DIR=${AREAL_RUNS_ROOT:-./areal_runs}/profiles/${TRIAL_NAME}
 export AREAL_TORCH_PROF_RANK=0
 export AREAL_TORCH_PROF_UPDATE=2
 ```
@@ -221,6 +225,6 @@ Perfetto 或 `chrome://tracing` 打开。
 
 ### 依赖版本无法从 PyPI 安装
 
-DCU 环境依赖定制的 PyTorch、Triton、Transformer Engine、Flash Attention、
+HCU 环境依赖定制的 PyTorch、Triton、Transformer Engine、Flash Attention、
 SGLang Kernel 等软件包。请使用与 DTK 版本匹配的内部软件源或 wheel，不要用
 官方同名包直接覆盖已验证版本。
