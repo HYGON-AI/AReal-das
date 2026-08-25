@@ -1,214 +1,97 @@
-# Contributing to AReaL
+# AReaL-das 贡献指南
 
-Thank you for your interest in contributing to AReaL! We welcome contributions from
-everyone, whether you're fixing bugs, improving documentations, adding new features, or
-helping with code reviews. This guide will help you get started.
+感谢你关注 AReaL-das。该项目是 AReaL 的 HCU 平台适配版本，欢迎提交 HCU 适配、稳定性修复、测试、文档和示例改进。
 
-Please review our [Code of Conduct](CODE_OF_CONDUCT.md) before participating and our
-[Governance](GOVERNANCE.md) document to understand how the project is managed.
+参与前请阅读 [行为准则](CODE_OF_CONDUCT.md)。
 
-## Table of Contents
+## 可接受的贡献范围
 
-- [Quick Start](#quick-start)
-- [Tips for Using AI-Assisted Coding](#tips-for-using-ai-assisted-coding)
-- [CI/CD](#cicd)
+- HCU 训练、推理与分布式运行适配
+- HCU 环境下的性能、稳定性和兼容性修复
+- HCU 示例、测试和文档完善
+- 与上游 AReaL 同步时所需的兼容性改动
 
-## Quick Start
+新增公共接口、依赖、模型支持或较大重构前，请先通过 Issue 或 Draft PR 说明目的、影响范围与验证计划。
 
-1. **Fork and Clone:**
+## 开发环境
 
-   ```bash
-   # Fork the repository on GitHub, then:
-   git clone https://github.com/YOUR-USERNAME/AReaL
-   cd AReaL
-   ```
+请使用与目标 HCU 环境匹配的软件栈：
 
-1. **Install Development Dependencies:**
+- Linux 与 Python 3.11
+- 匹配设备和驱动的 DTK
+- HCU 版本的 PyTorch、SGLang、Ray；按需安装 Megatron-LM 与 Megatron-Bridge
 
-   Check our
-   [installation guide](https://inclusionai.github.io/AReaL/en/tutorial/installation.html)
-   for detailed setup instructions.
+安装项目依赖：
 
-1. **Set Up Pre-commit Hooks:**
+~~~bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-hcu.txt
+~~~
 
-   ```bash
-   # Install hooks (includes formatting, linting, and commit message checks)
-   pre-commit install --install-hooks
-   # Subsequent commits will automatically check your files and commit messages:
-   git commit -a -m 'feat(engine): my change'
-   ```
+HCU 专用包可能无法从公共 PyPI 获取，请使用与 DTK 版本匹配的发行包或软件源。具体路径和 Qwen3-8B 冒烟测试请参阅 [README](README.md)。
 
-1. **Find an Issue:**
+## 提交改动
 
-   - Browse
-     [good first issues](https://github.com/inclusionAI/AReaL/labels/good%20first%20issue)
-   - Check [help wanted](https://github.com/inclusionAI/AReaL/labels/help%20wanted)
-     issues
-   - Or create a new issue using our
-     [issue templates](https://github.com/inclusionAI/AReaL/issues/new/choose)
+1. 从最新主分支创建描述清晰的分支。
+2. 保持改动范围聚焦；不要混入格式化无关文件或生成产物。
+3. 不要提交模型权重、训练日志、checkpoint、内部 IP、内部地址、账号、令牌、密钥或密码。
+4. 修改源码时，保留已有的 SPDX 和上游版权声明；新增海光修改应包含：
 
-1. **Make Your Changes:**
+~~~text
+Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+~~~
 
-   - Create a branch: `git checkout -b your-feature-name`
-   - Make your changes with proper formatting
-   - Test your changes following the next step
+5. 同步或修改上游 AReaL 代码时，必须保留 Apache-2.0 许可证和原始版权声明。
 
-1. **Test Your Changes:**
+## 提交前检查
 
-   ```bash
-   # --sw: step-wise debugging
-   # --lf: run the last failed test first
-   pytest -sv --sw --lf tests/
-   ```
+提交前至少执行：
 
-   Our test suite includes:
+~~~bash
+git diff --check
+pre-commit run --all-files
+~~~
 
-   - Running all examples to ensure they can execute one RL step
-   - Checking individual engine functionalities, including rollout, forward-backward,
-     and weight updates
-   - Verifying numerical consistency of our packed data format with HuggingFace padded
-     input, with and without Ulysses
-   - Testing staleness management functionality
-   - Ensuring GSM8K SFT loss decreases and RL rewards increase
-   - Running other unit tests for individual components
+并运行与改动相关的测试。例如：
 
-   Some unit tests require multiple GPUs. The entry point scripts are located under
-   `tests/torchrun`. In the corresponding test files (e.g.,
-   `test_data_redistribution.py`), we use subprocesses to launch distributed experiments
-   with `torchrun` and wait for results.
+~~~bash
+pytest -q tests/test_hcu.py
+~~~
 
-   If you have modified documentation, prepare doc in English and Chinese (use
-   [/translate-doc-zh](../en/reference/ai_assisted_dev.md#commands) if needed), then
-   build the docs and preview locally:
+涉及 HCU 运行路径、启动脚本或模型适配的改动，应至少完成一次可复现验证，并在 PR 中提供：
 
-   ```bash
-   ./docs/build_all.sh
-   ```
+- HCU 型号与卡数
+- DTK、Python、PyTorch、SGLang 和 Megatron 版本
+- 模型名称与训练/rollout 后端
+- 实际执行命令
+- 验证结果或关键日志摘要
 
-1. **Submit a Pull Request**
+请勿把短冒烟测试结果表述为完整训练性能结论。
 
-We suggest applying our provided agent harness command `/create-pr` whenever possible.
-Use that in `claude`, `opencode`, or any other coding agent CLI.
+## Pull Request 要求
 
-**IMPORTANT**: For new features and code refactoring, please submit a corresponding
-issue or open a draft PR to discuss with the core developers before making any code
-changes. Directly opening a PR that conflicts with our future [roadmap](ROADMAP.md) may
-waste your effort.
+PR 描述应包括：
 
-## Tips for Using AI-Assisted Coding
+- 改动目的和影响范围
+- 是否影响公开 API、配置或依赖
+- 已执行的检查和测试
+- HCU 验证环境与结果（如适用）
+- 兼容性、已知限制和回退方式（如适用）
 
-See the full
-[AI-Assisted Development Guide](https://inclusionai.github.io/AReaL/en/reference/ai_assisted_dev.html)
-for detailed documentation.
+提交信息建议使用清晰的类型前缀，例如：
 
-## CI/CD
+~~~text
+feat(hcu): add HCU rollout compatibility check
+fix(grpo): handle tokenizer path validation
+docs: update HCU quickstart
+~~~
 
-### Pre-commit Checks
+## 文档与测试
 
-Pre-commit checks run automatically on every PR. CI executes
-`pre-commit run --all-files` to verify formatting (Ruff, clang-format, mdformat) and
-linting. Commit messages are also validated against
-[Conventional Commits](https://www.conventionalcommits.org/) format (e.g., `feat: ...`,
-`fix: ...`, `docs: ...`, `gov: ...`).
+功能改动应同步更新中文文档、示例或测试。若改动影响安装、依赖、环境变量、模型支持范围或启动命令，必须更新根目录 README 和相关 HCU 文档。
 
-As long as you have `pre-commit install --install-hooks` set up locally, your code will
-be checked before each commit and your commit messages will be validated automatically.
+## 许可证
 
-### Tests
-
-Tests for PRs are triggered when the PR is manually tagged with `safe-to-test`. The test
-suite runs on ephemeral GCP compute engines with 2 A100 GPUs (40GB memory).
-
-> **IMPORTANT:** To re-run tests, **DO NOT** click the "Re-run workflow" button on
-> GitHub. Instead, remove the `safe-to-test` tag and then add it back.
-
-**Writing Tests for New Features:**
-
-If you have implemented a new feature, we highly recommend writing tests and adding them
-to our pytest workflow. Place your test files under `tests/test_*.py` and mark them with
-our pre-defined pytest markers:
-
-- `slow`: Tests that take more than 30 seconds to run. These will not run in the CI/CD
-  workflow unless also marked with `ci`.
-- `ci`: Tests that should run in the CI/CD workflow (only needed for `slow` tests).
-- `gpu`: Tests that use a single GPU.
-- `multi_gpu`: Tests that use more than one GPU.
-
-Our CI/CD runs tests selected by `pytest -m "not slow or ci"`. Since our CI machines
-only have two GPUs, please skip tests that require more than 2 GPUs to prevent CI
-failures. For example:
-
-```python
-import pytest
-from areal.infra.platforms import current_platform
-
-# ordinary tests are supposed to run fast, and will run in CI
-def test_fast_operation():
-    ...
-
-# slow operations that will NOT run in CI
-@pytest.mark.slow
-def test_slow_operation():
-    ...
-
-# slow operations BUT must be tested in CI
-@pytest.mark.slow
-@pytest.mark.ci
-def test_slow_operation():
-    ...
-
-# skip tests for more than 2 GPUs
-@pytest.mark.skipif(current_platform.device_count() < 4, reason="This test requires 4 GPUs")
-def test_some_multi_gpu_functionality():
-    ...
-```
-
-### Image Building
-
-The image building workflow can be triggered manually from any branch by users with
-write permissions to the repository.
-
-**Triggering the Workflow:**
-
-You can trigger the workflow from any branch using either method:
-
-1. **Via GitHub UI:**
-
-   - Go to **Actions** → **"Build and Test Docker Image"**
-   - Click **"Run workflow"** dropdown
-   - Select the branch you want to build from
-   - Click **"Run workflow"**
-
-1. **Via GitHub CLI:**
-
-   ```bash
-   # Build from main
-   gh workflow run build-docker-image.yml --ref main
-
-   # Build from a feature branch
-   gh workflow run build-docker-image.yml --ref feature/my-changes
-
-   # Build from current branch
-   gh workflow run build-docker-image.yml --ref $(git branch --show-current)
-   ```
-
-**Pipeline Stages:**
-
-The workflow executes the following stages sequentially:
-
-1. **Build**: Builds the Docker image and pushes it with `:test` tag
-1. **Test**: Automatically runs the full test suite using the `:test` image
-1. **Promote**: If tests pass, promotes the image by retagging `:test` → `:dev`
-1. **Cleanup**: Always deletes the `:test` image from the registry (success or failure)
-
-Building the image from scratch takes approximately 1-2 hours, plus additional time for
-running the test suite.
-
-**Normal PR Testing:**
-
-The PR-based test workflow (triggered by the `safe-to-test` label) remains unchanged and
-uses the `:dev` image. This allows testing PRs against the last known-good image.
-
-______________________________________________________________________
-
-Thank you for contributing to AReaL! 🙏
+AReaL-das 采用 [Apache License 2.0](LICENSE)。贡献代码即表示你有权按该许可证提交，并同意保留本项目与上游的版权和许可证声明。

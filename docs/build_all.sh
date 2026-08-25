@@ -109,7 +109,7 @@ cat > "$ROOT_INDEX" <<'EOF'
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>AReaL Documentation</title>
+  <title>AReaL HCU Documentation</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     body{font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:40px;max-width:720px;margin:auto;color:#222}

@@ -1,7 +1,7 @@
 # Book settings
-title: AReaL Documentation
-author: AReaL Team
-copyright: "2026"
+title: AReaL HCU Documentation
+author: Hygon Information Technology Co., Ltd.
+copyright: "Copyright (c) 2026 Hygon Information Technology Co., Ltd."
 logo: ../figures/logo.png
 
 execute:
@@ -11,14 +11,9 @@ latex:
   latex_documents:
     targetname: book.tex
 
-repository:
-  url: https://github.com/inclusionAI/AReaL
-  path_to_book: docs
-  branch: main
-
 html:
-  use_issues_button: true
-  use_repository_button: true
+  use_issues_button: false
+  use_repository_button: false
   extra_footerjs:
     - _static/js/lang-toggle.js
   extra_css:
