@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 from __future__ import annotations
 
 import dataclasses
@@ -211,7 +211,6 @@ def _prepare_multimodal_forward_inputs(
             values = [item[key] for item in multi_modal_input if key in item]
             if values:
                 padded_mb[key] = torch.cat(values, dim=0)
-
     _drop_multimodal_payloads(mb)
 
 
@@ -438,6 +437,14 @@ class FSDPEngine(TrainEngine):
                 full_state = self.model.state_dict()
             else:
                 full_state = {}
+
+        if self.is_vision_model and is_qwen_vl_model(self.model_config.model_type):
+            from areal.models.transformers.qwen_vl import (
+                patch_qwen_vl_visual_forward_for_packed_text,
+            )
+
+            # nhb: Keep packed text cu_seqlens out of Qwen-VL vision encoders.
+            patch_qwen_vl_visual_forward_for_packed_text(self.model.model.visual)
 
         # NOTE: This applies FSDP2 with N-D parallelism (DP+SP+TP)
         parallelize_model(
