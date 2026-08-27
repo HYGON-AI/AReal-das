@@ -17,7 +17,10 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements-hcu.txt
+python -m pip install -e . --no-deps
 ```
+
+> `--no-deps` prevents pip from replacing the installed HCU PyTorch, SGLang, and Megatron software stack.
 
 ## Configure source locations
 

@@ -38,7 +38,10 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements-hcu.txt
+python -m pip install -e . --no-deps
 ~~~
+
+> `--no-deps` 可避免 pip 覆盖已安装的 HCU PyTorch、SGLang 和 Megatron 软件栈。
 
 ## 配置外部组件路径
 
@@ -100,4 +103,4 @@ Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 
 ## 开源许可
 
-本项目采用 [Apache License 2.0](LICENSE)。再分发派生作品时，请保留上游的版权和许可证声明。
+本项目采用 [Apache License 2.0](LICENSE)。再分发派生作品时，请保留上游的版权和许可证声明。第三方组件说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

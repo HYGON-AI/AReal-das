@@ -2,6 +2,36 @@
 
 Run a two-step GRPO smoke test with Qwen3-8B, FSDP, and SGLang on one 8-HCU node.
 
+## Container installation
+
+Use an HCU base image that includes the HCU runtime, HCU PyTorch, and SGLang. Obtain the current image name and tag from the [SourceFind community](https://developer.sourcefind.cn/servicelist/detail?post_id=1abf923f-5a33-11f1-9e57-0242ac150003):
+
+```bash
+docker pull REPOSITORY:TAG
+```
+
+Start the container with HCU devices and mounted source/model directories:
+
+```bash
+docker run -it --name areal-das-hcu --shm-size=64G \
+  --device=/dev/kfd --device=/dev/mkfd --device=/dev/dri \
+  --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
+  --ulimit memlock=-1:-1 --ipc=host --network=host \
+  --workdir=/workspace --privileged \
+  -v /opt/hyhal:/opt/hyhal:ro \
+  -v <host-workspace>:/workspace \
+  REPOSITORY:TAG /bin/bash
+```
+
+Inside the container, install AReaL without replacing HCU binary packages:
+
+```bash
+python -m pip install -r requirements-hcu.txt
+python -m pip install -e . --no-deps
+```
+
+See [`hcu_example/user_guide.md`](../../../hcu_example/user_guide.md) for the full container setup.
+
 ```bash
 source /path/to/venv/bin/activate
 export VENV="${VIRTUAL_ENV}"

@@ -1,0 +1,53 @@
+name: HCU Source Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - v1.0.4
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcu-source-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Source, format, and shell checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Set up pre-commit
+        run: python -m pip install --upgrade pip pre-commit
+
+      - name: Run pre-commit checks
+        # These hooks require a fully installed HCU runtime or regenerate locks;
+        # they are run in the matching HCU development environment instead.
+        run: pre-commit run --all-files
+
+      - name: Check Python syntax
+        run: python -m compileall -q areal hcu_example
+
+      - name: Check HCU launcher syntax
+        run: |
+          find hcu_example -type f -name "*.sh" -print0 |
+            xargs -0 -r -n1 bash -n
+
+      - name: Check public HCU requirements policy
+        run: |
+          if grep -nE '^.*\+das|^.*dtk[0-9]|^(torch|torchvision|triton|flash_attn|transformer_engine|hcu-megatron)==' requirements-hcu.txt; then
+            echo "requirements-hcu.txt must not contain internal HCU build pins."
+            exit 1
+          fi

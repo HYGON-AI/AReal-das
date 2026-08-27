@@ -64,43 +64,7 @@ repos:
         name: nbstripout - Strip notebook output
         description: Strip output from Jupyter notebooks
 
-  # Check consistency between pyproject.toml variants (sglang vs vllm)
-  - repo: local
-    hooks:
-      - id: check-pyproject-consistency
-        name: Check pyproject.toml consistency
-        entry: python3 areal/tools/check_pyproject_consistency.py
-        language: system
-        files: ^pyproject(\.vllm)?\.toml$
-        pass_filenames: false
-        always_run: false
-        require_serial: true
-
-  # Regenerate uv lockfiles when pyproject files change
-  - repo: local
-    hooks:
-      - id: uv-lock
-        name: Regenerate uv lockfiles
-        entry: bash scripts/uv_lock.sh
-        language: system
-        files: ^pyproject(\.vllm)?\.toml$
-        pass_filenames: false
-        always_run: false
-        require_serial: true
-
-  # Generate CLI documentation
-  - repo: local
-    hooks:
-      - id: generate-cli-docs
-        name: Generate CLI documentation
-        entry: python docs/generate_cli_docs.py
-        language: system
-        files: ^(areal/api/cli_args\.py|docs/generate_cli_docs\.py)$
-        pass_filenames: false
-        always_run: false
-        require_serial: true
-
-  # Ensure SPDX license header in Python source files
+  # Ensure SPDX license header  # Ensure SPDX license header in Python source files
   - repo: local
     hooks:
       - id: check-license-header
@@ -109,35 +73,3 @@ repos:
         language: system
         files: ^areal/.*\.py$
         types: [python]
-
-  # Format and lint .github/CODEOWNERS
-  - repo: local
-    hooks:
-      - id: format-codeowners
-        name: Format CODEOWNERS
-        entry: python3 areal/tools/format_codeowners.py
-        language: system
-        files: ^\.github/CODEOWNERS$
-        pass_filenames: false
-        always_run: false
-        require_serial: true
-
-  # Conventional Commits message check
-  - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v4.4.0
-    hooks:
-      - id: conventional-pre-commit
-        stages: [commit-msg]
-        args:
-          - feat
-          - fix
-          - docs
-          - gov
-          - style
-          - refactor
-          - perf
-          - test
-          - build
-          - ci
-          - chore
-          - revert

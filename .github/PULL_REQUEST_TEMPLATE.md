@@ -1,47 +1,35 @@
-## Description
+## 改动说明
 
-<!-- Provide a clear and concise description of what this PR does -->
+<!-- 简要说明改动目的、影响范围与兼容性。 -->
 
-## Related Issue
+## 改动类型
 
-<!-- Link to the issue this PR addresses. PRs should be related to a well-templated issue. -->
+- [ ] HCU 适配或兼容性修复
+- [ ] 训练/rollout 示例
+- [ ] 文档更新
+- [ ] 测试或 CI
+- [ ] 性能优化
+- [ ] 其他
 
-Fixes #(issue)
+## 验证情况
 
-## Type of Change
+<!-- HCU 相关改动请填写；纯文档改动可填写“不适用”。 -->
 
-<!-- Select ONE that best describes this PR -->
+- HCU 型号与卡数：
+- DTK / Python / PyTorch / SGLang / Megatron 版本：
+- 模型与 Actor/Rollout 后端：
+- 执行命令：
+- 验证结果或关键日志：
 
-- [ ] 🐛 Bug fix
-- [ ] ✨ New feature
-- [ ] 💥 Breaking change
-- [ ] 📝 Documentation update
-- [ ] ♻️ Refactoring
-- [ ] ⚡ Performance improvement
-- [ ] ✅ Test coverage improvement
+## 提交前检查
 
-## Checklist
+- [ ] 已执行 `git diff --check`
+- [ ] 已执行 `pre-commit run --all-files`
+- [ ] 已运行与改动相关的测试或 HCU 冒烟验证
+- [ ] 未提交模型权重、日志、checkpoint、内部地址、账号或密钥
+- [ ] 已保留上游 Apache-2.0 版权与许可证声明
+- [ ] 已更新 README、HCU 示例或文档（如适用）
 
-<!-- Mark with 'x' what you've done -->
+## 其他说明
 
-- [ ] I have read the [Contributing Guide](../CONTRIBUTING.md)
-- [ ] Pre-commit hooks pass (`pre-commit run --all-files`)
-- [ ] Relevant tests pass; new tests added for new functionality
-- [ ] Documentation updated (if applicable; built with `./docs/build_all.sh`)
-- [ ] Branch is up to date with `main`
-- [ ] Self-reviewed via `/review-pr` command
-- [ ] This PR was created by a coding agent via `/create-pr`
-- [ ] This PR is a breaking change
-
-**Breaking Change Details (if applicable):**
-
-<!-- Describe what breaks and how users should migrate -->
-
-## Additional Context
-
-<!-- Add any other context, screenshots, logs, or explanations here -->
-
-______________________________________________________________________
-
-**Need help?** Check the [Contributing Guide](../CONTRIBUTING.md) or ask in
-[GitHub Discussions](https://github.com/inclusionAI/AReaL/discussions)!
+<!-- 记录已知限制、回退方式或需要审阅者关注的事项。 -->
