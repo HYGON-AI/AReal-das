@@ -1,0 +1,107 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+name: HCU Image Build and Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_image:
+        description: "Official HCU SGLang base image (overrides repository variable HCU_BASE_IMAGE)"
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - "areal/**"
+      - "examples/**"
+      - "hcu_example/**"
+      - "requirements-hcu.txt"
+      - "pyproject.toml"
+      - "docker/Dockerfile.hcu"
+      - ".github/workflows/hcu-image-test.yml"
+  push:
+    branches: [main]
+    paths:
+      - "areal/**"
+      - "examples/**"
+      - "hcu_example/**"
+      - "requirements-hcu.txt"
+      - "pyproject.toml"
+      - "docker/Dockerfile.hcu"
+      - ".github/workflows/hcu-image-test.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcu-image-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image-test:
+    # Configure a self-hosted runner with these labels and Docker/HCU access.
+    runs-on: [self-hosted, linux, hcu]
+    timeout-minutes: 45
+    env:
+      BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE }}
+      IMAGE_TAG: areal-das:hcu-ci-${{ github.sha }}
+
+    steps:
+      - name: Check base-image configuration
+        run: |
+          test -n "${BASE_IMAGE}" || {
+            echo "Set repository variable HCU_BASE_IMAGE or provide workflow_dispatch input base_image."
+            exit 1
+          }
+
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Check HCU runner prerequisites
+        run: |
+          test -e /dev/kfd
+          test -e /dev/dri
+          test -e /dev/mkfd
+          docker version
+
+      - name: Build AReaL-das HCU image
+        run: |
+          docker build \
+            --build-arg BASE_IMAGE="${BASE_IMAGE}" \
+            --file docker/Dockerfile.hcu \
+            --tag "${IMAGE_TAG}" \
+            .
+
+      - name: Test imports and HCU visibility in image
+        run: |
+          docker run --rm \
+            --device=/dev/kfd \
+            --device=/dev/dri \
+            --device=/dev/mkfd \
+            --cap-add=SYS_PTRACE \
+            --security-opt seccomp=unconfined \
+            --ulimit memlock=-1:-1 \
+            --ipc=host \
+            --shm-size=16g \
+            "${IMAGE_TAG}" \
+            python -c '
+          from importlib.metadata import version
+          from packaging.version import Version
+          import areal
+          import sglang
+          import torch
+
+          print("torch:", torch.__version__, "hip=", torch.version.hip)
+          print("areal:", areal.__file__)
+          print("sglang:", sglang.__file__, version("sglang"))
+          assert torch.version.hip is not None, "HCU PyTorch is required"
+          assert torch.cuda.device_count() > 0, "No HCU device is visible"
+          assert Version(version("sglang")) >= Version("0.5.12")
+          '
+
+      - name: Test AReaL source and HCU launchers in image
+        run: |
+          docker run --rm "${IMAGE_TAG}" bash -lc '
+            python -m compileall -q areal hcu_example &&
+            find hcu_example -type f -name "*.sh" -print0 | xargs -0 -r -n1 bash -n &&
+            python -c "import areal.engine.hcu"
+          '
