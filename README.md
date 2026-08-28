@@ -61,13 +61,14 @@ export PYTHONPATH="${AREAL_HOME}:${SGLANG_ROOT}/python:${MEGATRON_HOME}/Megatron
 
 HCU 示例脚本、环境变量说明、模型与后端支持矩阵、单节点与多节点启动流程均位于 [hcu_example](hcu_example/README.md)。
 
-首次运行前，请先按 [GRPO 示例说明](hcu_example/grpo/README.md) 配置 HCU 软件栈、模型路径和 Ray 环境；再使用该目录中的 `run.sh` 选择模型与 Actor 后端。示例中提供 Qwen、GLM 的 FSDP/Megatron + SGLang 启动脚本。
+首次运行前，请先按 [GRPO 示例说明](hcu_example/grpo/README.md) 配置 HCU 软件栈、模型路径和 Ray 环境；再使用该目录中的 `run.sh` 选择模型与 Actor 后端。示例中提供 Qwen、Qwen3-VL、GLM 的 FSDP/Megatron + SGLang 启动脚本。
 
 ## 支持的 HCU 示例
 
 | 模型 | Actor 后端 | Rollout 后端 | 启动脚本 |
 | --- | --- | --- | --- |
 | Qwen3-8B | FSDP 或 Megatron | SGLang | hcu_example/grpo/run_qwen3_8b_*_sglang.sh |
+| Qwen3-VL-4B | FSDP | SGLang（多模态） | hcu_example/grpo/run_qwen3_vl_4b_fsdp_sglang.sh |
 | Qwen3-30B-A3B（4 层） | Megatron | SGLang | hcu_example/grpo/run_qwen3_30b_a3b_4layers_megatron_sglang.sh |
 | Qwen3-1.7B | FSDP 或 Megatron | SGLang | hcu_example/grpo/run_qwen3_1_7b_*_sglang.sh |
 | Qwen2.5-0.5B | FSDP 或 Megatron | SGLang | hcu_example/grpo/run_qwen2_5_0_5b_*_sglang.sh |

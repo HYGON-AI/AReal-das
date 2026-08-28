@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 # SPDX-License-Identifier: Apache-2.0
-#nhb: Qwen3-VL-4B-Instruct GRPO launcher using Geometry3K image data.
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,7 +16,6 @@ TOKENIZER_PATH="${TOKENIZER_PATH:-${MODEL_PATH}}"
 N_NODES="${N_NODES:-1}"
 N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-8}"
 
-#nhb: Four HCUs train the FSDP actor and four HCUs run SGLang TP4 rollout.
 ACTOR_BACKEND="${ACTOR_BACKEND:-fsdp:d4p1t1}"
 ROLLOUT_BACKEND="${ROLLOUT_BACKEND:-sglang:d1p1t4}"
 WEIGHT_UPDATE_MODE="${WEIGHT_UPDATE_MODE:-xccl}"
@@ -28,7 +26,6 @@ TIMESTAMP="${TIMESTAMP:-$(date '+%Y%m%d-%H%M%S')}"
 LOG_DIR="${LOG_DIR:-${AREAL_RUNS_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
 LOG_FILE="${LOG_FILE:-${LOG_DIR}/train.log}"
 
-#nhb: Keep the first run small; increase these after the smoke run succeeds.
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-4}"
 VALID_BATCH_SIZE="${VALID_BATCH_SIZE:-4}"
 N_SAMPLES="${N_SAMPLES:-2}"
@@ -50,7 +47,6 @@ SGLANG_ATTENTION_BACKEND="${SGLANG_ATTENTION_BACKEND:-fa3}"
 SGLANG_DISABLE_CUSTOM_ALL_REDUCE="${SGLANG_DISABLE_CUSTOM_ALL_REDUCE:-True}"
 ROLLOUT_SETUP_TIMEOUT="${ROLLOUT_SETUP_TIMEOUT:-900}"
 
-#nhb: Use AReaL's native image-aware workflow and Geometry3K reward/dataset.
 GRPO_ENTRYPOINT="examples/vlm/geometry3k_grpo.py"
 GRPO_CONFIG="examples/vlm/geometry3k_grpo.yaml"
 

@@ -15,6 +15,7 @@
 | `qwen2_5_0_5b_megatron_sglang` | Megatron TP2 | SGLang TP2 | 1×8 HCU（实际使用4） | qwen | 新增/待实机验证 |
 | `qwen3_1_7b_megatron_sglang` | Megatron TP4 | SGLang TP4 | 1×8 HCU | qwen | 已迁移 |
 | `qwen3_8b_megatron_sglang` | Megatron TP4 | SGLang TP4 | 1×8 HCU | qwen | 已运行 |
+| `qwen3_vl_4b_fsdp_sglang` | FSDP DP4 | SGLang TP4（多模态） | 1×8 HCU | qwen | Geometry3K 示例 |
 | `qwen3_30b_a3b_4layers_megatron_sglang` | Megatron TP8 | SGLang TP8 | 2×8 HCU | qwen | 已运行基线 |
 | `qwen3_5_2b_megatron_sglang` | custom Megatron | SGLang | 1×8 HCU | qwen35 | WIP |
 | `glm5_4layers_megatron_sglang` | Megatron TP8/EP8 | SGLang TP8 | 2×8 HCU | glm5 | custom |
