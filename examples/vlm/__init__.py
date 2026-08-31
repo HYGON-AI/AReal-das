@@ -1,1 +1,2 @@
-#nhb: Package marker for dynamically imported VLM reward functions.
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0

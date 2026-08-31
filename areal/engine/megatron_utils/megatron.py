@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# Modified by Hygon Information Technology Co., Ltd., 2026.
 
 import functools
 import inspect

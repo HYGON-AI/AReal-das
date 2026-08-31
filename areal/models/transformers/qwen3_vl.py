@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# Modified by Hygon Information Technology Co., Ltd., 2026.
 
 # Qwen3VL-specific Ulysses sequence parallelism patch
 # Based on transformers.models.qwen3_vl.modeling_qwen3_vl.Qwen3VLTextAttention

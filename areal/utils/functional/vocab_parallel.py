@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Modified by Hygon Information Technology Co., Ltd., 2026.
 
 import functools
 from collections.abc import Callable
@@ -30,7 +31,7 @@ def _gather_logprobs_entropy(
 
 
 def _should_use_torch_compile() -> bool:
-    return  False #not is_npu_available nhb
+    return not is_npu_available()
 
 
 if _should_use_torch_compile():

@@ -1,4 +1,5 @@
 #!/bin/bash
+# Modified by Hygon Information Technology Co., Ltd., 2026.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

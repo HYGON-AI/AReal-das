@@ -92,9 +92,12 @@ AReaL-das 基于 [areal-project/AReaL](https://github.com/areal-project/AReaL) �
 
 - 上游仓库：https://github.com/areal-project/AReaL
 - 上游基线：v1.0.4
-- 上游许可证：Apache License 2.0
+- 上游 Commit：37d6c6400e99a05fa3409d6a067762a44df40d3b
+- 上游许可证：Apache-2.0
 
-本仓库保留上游源文件中的原始版权声明和许可证条款。HCU 平台适配、HCU 示例脚本和 HCU 文档由 Hygon Information Technology Co., Ltd. 于 2026 年修改，并同样采用 Apache License 2.0：
+本仓库保留上游源文件中的原始版权声明和许可证条款。Modified by Hygon Information Technology Co., Ltd.
+
+HCU 平台适配、HCU 示例脚本和 HCU 文档由 Hygon Information Technology Co., Ltd. 于 2026 年修改，并同样采用 Apache-2.0：
 
 ~~~text
 Copyright (c) 2026 Hygon Information Technology Co., Ltd.
