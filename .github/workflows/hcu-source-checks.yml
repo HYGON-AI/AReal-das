@@ -17,7 +17,9 @@ concurrency:
 jobs:
   quality:
     name: Source, format, and shell checks
-    runs-on: ubuntu-latest
+    runs-on:
+      group: ci-general
+      labels: [self-hosted, ci, bw1100]
     timeout-minutes: 15
 
     steps:

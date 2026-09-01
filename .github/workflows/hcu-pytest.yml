@@ -30,7 +30,9 @@ concurrency:
 jobs:
   unit:
     name: Public CPU unit tests
-    runs-on: ubuntu-latest
+    runs-on:
+      group: ci-general
+      labels: [self-hosted, ci, bw1100]
     timeout-minutes: 30
     env:
       HF_HUB_OFFLINE: "1"

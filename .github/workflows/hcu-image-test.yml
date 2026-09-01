@@ -38,8 +38,10 @@ concurrency:
 
 jobs:
   image-test:
-    # Configure a self-hosted runner with these labels and Docker/HCU access.
-    runs-on: [self-hosted, linux, hcu]
+    # The ci-general runner group provides Docker and HCU access.
+    runs-on:
+      group: ci-general
+      labels: [self-hosted, ci, bw1100]
     timeout-minutes: 45
     env:
       BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE }}
