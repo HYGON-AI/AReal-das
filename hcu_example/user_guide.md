@@ -4,7 +4,8 @@
 
 ## 1. 使用 SGLang 基础镜像
 
-请先从[光源社区](https://developer.sourcefind.cn/servicelist/detail?post_id=1abf923f-5a33-11f1-9e57-0242ac150003)获取当前可用的 HCU SGLang 基础镜像名称和标签：
+请先从[光源社区](https://developer.sourcefind.cn/servicelist/detail?post_id=1abf923f-5a33-11f1-9e57-0242ac150003)获取当前可用的
+HCU SGLang 基础镜像名称和标签：
 
 ```bash
 docker pull REPOSITORY:TAG
@@ -36,7 +37,8 @@ docker run -it \
   /bin/bash
 ```
 
-容器启动后，确认 `/dev/kfd`、`/dev/dri` 和 HCU 版 PyTorch/SGLang 均可见。不要在容器内重新安装会覆盖 HCU 版本的 CUDA/ROCm 二进制包。
+容器启动后，确认 `/dev/kfd`、`/dev/dri` 和 HCU 版 PyTorch/SGLang 均可见。不要在容器内重新安装会覆盖 HCU 版本的
+CUDA/ROCm 二进制包。
 
 ## 3. 获取代码和安装 AReaL
 

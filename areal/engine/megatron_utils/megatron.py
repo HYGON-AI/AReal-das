@@ -1169,6 +1169,7 @@ def convert_glm5_to_hf(
 
     raise ValueError(f"Unknown GLM-5 parameter name: {name}")
 
+
 # BailingMoeV2_5 weight conversion
 #
 # BailingMoe HF uses "attention." prefix (not "self_attn.").

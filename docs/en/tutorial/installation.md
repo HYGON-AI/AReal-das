@@ -8,7 +8,8 @@ This distribution targets Hygon Compute Units (HCU).
 - A DTK release compatible with the HCU device and driver
 - HCU-enabled PyTorch, Triton, Transformer Engine, Flash Attention, Ray, and SGLang
 
-`requirements-hcu.txt` lists direct Python dependencies. Install the HCU software stack supplied for the matching DTK version before using it.
+`requirements-hcu.txt` lists direct Python dependencies. Install the HCU software stack
+supplied for the matching DTK version before using it.
 
 ## Install
 
@@ -20,7 +21,8 @@ python -m pip install -r requirements-hcu.txt
 python -m pip install -e . --no-deps
 ```
 
-> `--no-deps` prevents pip from replacing the installed HCU PyTorch, SGLang, and Megatron software stack.
+> `--no-deps` prevents pip from replacing the installed HCU PyTorch, SGLang, and
+> Megatron software stack.
 
 ## Configure source locations
 
@@ -32,6 +34,8 @@ export MEGATRON_BRIDGE_HOME="${MEGATRON_HOME}/Megatron-Bridge"
 export PYTHONPATH="${AREAL_HOME}:${SGLANG_ROOT}/python:${MEGATRON_HOME}/Megatron-LM:${MEGATRON_BRIDGE_HOME}/src:${PYTHONPATH:-}"
 ```
 
-Only `glm_moe_dsa` requires `hcu_megatron`; other supported models use conditional imports.
+Only `glm_moe_dsa` requires `hcu_megatron`; other supported models use conditional
+imports.
 
-Continue with the [HCU quickstart](quickstart.md). See [HCU_README](../../../README.md) for compatibility notes and multi-node launch.
+Continue with the [HCU quickstart](quickstart.md). See [HCU_README](../../../README.md)
+for compatibility notes and multi-node launch.

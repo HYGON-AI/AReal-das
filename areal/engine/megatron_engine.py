@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any
 import mbridge
 import torch
 import torch.distributed as dist
-
 from megatron.bridge import AutoBridge as MegatronBridgeAutoBridge
 from megatron.bridge.peft.lora import LoRA as MegatronBridgeLoRA
 from megatron.core import parallel_state as mpu
@@ -49,11 +48,10 @@ from areal.api import (
 )
 from areal.api.cli_args import MicroBatchSpec, PerfTracerConfig, TrainEngineConfig
 from areal.api.io_struct import DeviceRuntimeInfo
-from areal.engine.hcu import apply_hcu_dsa_patches, requires_hcu_dsa_patches
 from areal.engine.core import (
     aggregate_eval_losses,
     compute_total_loss_weight,
-    reorder_and_pad_outputs, 
+    reorder_and_pad_outputs,
 )
 from areal.engine.core.distributed import (
     init_custom_process_group,
@@ -64,6 +62,7 @@ from areal.engine.core.model import (
     is_valid_vision_model,
     lang_config,
 )
+from areal.engine.hcu import apply_hcu_dsa_patches, requires_hcu_dsa_patches
 from areal.engine.megatron_utils.checkpointer import MegatronCheckpointManager
 from areal.engine.megatron_utils.deterministic import set_deterministic_algorithms
 from areal.engine.megatron_utils.fp8 import FP8BlockwiseTensorHelper
@@ -1130,7 +1129,7 @@ class MegatronEngine(TrainEngine):
         # without shard_ids. They do not own the dispatched RTensor shards, so no-op.
         if not shard_ids:
             return
-        
+
         from areal.infra.rpc.rtensor import clear_fetch_buffer
 
         clear_fetch_buffer(shard_ids)

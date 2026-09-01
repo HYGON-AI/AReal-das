@@ -144,7 +144,6 @@ def patch_qwen3_vl_deepstack_process_for_tp(language_model: nn.Module):
         patched_deepstack_process, language_model
     )
 
-#nhb
 def patch_qwen3_vl_visual_forward_for_packed_text(vision_model: nn.Module) -> None:
     """Keep AReaL text packing metadata out of the Qwen3-VL vision encoder."""
     if getattr(vision_model, "_areal_packed_text_kwargs_filtered", False):
@@ -153,7 +152,7 @@ def patch_qwen3_vl_visual_forward_for_packed_text(vision_model: nn.Module) -> No
     original_forward = vision_model.forward
 
     def patched_visual_forward(self, hidden_states, grid_thw, **kwargs):
-        # nhb: These describe packed text tokens, not visual patches.
+        # These describe packed text tokens, not visual patches.
         # Qwen3-VL must derive visual cu_seqlens from image_grid_thw.
         for key in (
             "cu_seqlens",

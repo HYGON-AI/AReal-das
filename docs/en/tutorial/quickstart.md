@@ -4,7 +4,9 @@ Run a two-step GRPO smoke test with Qwen3-8B, FSDP, and SGLang on one 8-HCU node
 
 ## Container installation
 
-Use an HCU base image that includes the HCU runtime, HCU PyTorch, and SGLang. Obtain the current image name and tag from the [SourceFind community](https://developer.sourcefind.cn/servicelist/detail?post_id=1abf923f-5a33-11f1-9e57-0242ac150003):
+Use an HCU base image that includes the HCU runtime, HCU PyTorch, and SGLang. Obtain the
+current image name and tag from the
+[SourceFind community](https://developer.sourcefind.cn/servicelist/detail?post_id=1abf923f-5a33-11f1-9e57-0242ac150003):
 
 ```bash
 docker pull REPOSITORY:TAG
@@ -30,7 +32,8 @@ python -m pip install -r requirements-hcu.txt
 python -m pip install -e . --no-deps
 ```
 
-See [`hcu_example/user_guide.md`](../../../hcu_example/user_guide.md) for the full container setup.
+See [`hcu_example/user_guide.md`](../../../hcu_example/user_guide.md) for the full
+container setup.
 
 ```bash
 source /path/to/venv/bin/activate
@@ -56,4 +59,5 @@ bash run.sh --model=qwen3_8b --backend=fsdp \
   --gpus-per-node=8 --restart-ray
 ```
 
-This starts or restarts single-node Ray. Do not use smoke-test settings for production training. Checkpoint saving depends on the example configuration.
+This starts or restarts single-node Ray. Do not use smoke-test settings for production
+training. Checkpoint saving depends on the example configuration.

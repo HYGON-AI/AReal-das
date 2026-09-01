@@ -443,7 +443,7 @@ class FSDPEngine(TrainEngine):
                 patch_qwen_vl_visual_forward_for_packed_text,
             )
 
-            # nhb: Keep packed text cu_seqlens out of Qwen-VL vision encoders.
+            # Keep packed text cu_seqlens out of Qwen-VL vision encoders.
             patch_qwen_vl_visual_forward_for_packed_text(self.model.model.visual)
 
         # NOTE: This applies FSDP2 with N-D parallelism (DP+SP+TP)

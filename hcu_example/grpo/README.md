@@ -10,15 +10,15 @@
 
 ## 当前模型
 
-| `--model` 名称 | Actor | Rollout | 默认资源 | profile | 状态 |
-|---|---|---|---|---|---|
-| `qwen2_5_0_5b_megatron_sglang` | Megatron TP2 | SGLang TP2 | 1×8 HCU（实际使用4） | qwen | 新增/待实机验证 |
-| `qwen3_1_7b_megatron_sglang` | Megatron TP4 | SGLang TP4 | 1×8 HCU | qwen | 已迁移 |
-| `qwen3_8b_megatron_sglang` | Megatron TP4 | SGLang TP4 | 1×8 HCU | qwen | 已运行 |
-| `qwen3_vl_4b_fsdp_sglang` | FSDP DP4 | SGLang TP4（多模态） | 1×8 HCU | qwen | Geometry3K 示例 |
-| `qwen3_30b_a3b_4layers_megatron_sglang` | Megatron TP8 | SGLang TP8 | 2×8 HCU | qwen | 已运行基线 |
-| `qwen3_5_2b_megatron_sglang` | custom Megatron | SGLang | 1×8 HCU | qwen35 | WIP |
-| `glm5_4layers_megatron_sglang` | Megatron TP8/EP8 | SGLang TP8 | 2×8 HCU | glm5 | custom |
+| `--model` 名称                          | Actor            | Rollout              | 默认资源             | profile | 状态            |
+| --------------------------------------- | ---------------- | -------------------- | -------------------- | ------- | --------------- |
+| `qwen2_5_0_5b_megatron_sglang`          | Megatron TP2     | SGLang TP2           | 1×8 HCU（实际使用4） | qwen    | 新增/待实机验证 |
+| `qwen3_1_7b_megatron_sglang`            | Megatron TP4     | SGLang TP4           | 1×8 HCU              | qwen    | 已迁移          |
+| `qwen3_8b_megatron_sglang`              | Megatron TP4     | SGLang TP4           | 1×8 HCU              | qwen    | 已运行          |
+| `qwen3_vl_4b_fsdp_sglang`               | FSDP DP4         | SGLang TP4（多模态） | 1×8 HCU              | qwen    | Geometry3K 示例 |
+| `qwen3_30b_a3b_4layers_megatron_sglang` | Megatron TP8     | SGLang TP8           | 2×8 HCU              | qwen    | 已运行基线      |
+| `qwen3_5_2b_megatron_sglang`            | custom Megatron  | SGLang               | 1×8 HCU              | qwen35  | WIP             |
+| `glm5_4layers_megatron_sglang`          | Megatron TP8/EP8 | SGLang TP8           | 2×8 HCU              | glm5    | custom          |
 
 查看：
 
@@ -50,15 +50,15 @@ TRAINER_CONFIG
 ## 新增模型必须做的事情
 
 1. 创建 `run_<model>_<train_backend>_<rollout_backend>.sh`。
-2. 对照 AReaL v1.0.4 `cli_args.py` 和对应官方 YAML，确认每个 Hydra key 存在。
-3. 选择正确的 `AREAL_ENV_PROFILE`。
-4. 设计合理的 Actor/Rollout TP/DP/PP/EP，而不是机械复制其他模型。
-5. 在 `run.sh` 的 `SUPPORTED_MODELS` 中注册名字。
-6. 在 `run.sh` 的 `case` 中注册 `MODEL_SCRIPT / PROFILE`。
-7. 更新本 README 的模型表。
-8. 执行 `bash -n` 和 `bash run.sh --list`。
-9. 首次只做 10~20 step smoke test。
-10. 如果环境/profile/source 路径变化，重启 Ray 后再测试。
+1. 对照 AReaL v1.0.4 `cli_args.py` 和对应官方 YAML，确认每个 Hydra key 存在。
+1. 选择正确的 `AREAL_ENV_PROFILE`。
+1. 设计合理的 Actor/Rollout TP/DP/PP/EP，而不是机械复制其他模型。
+1. 在 `run.sh` 的 `SUPPORTED_MODELS` 中注册名字。
+1. 在 `run.sh` 的 `case` 中注册 `MODEL_SCRIPT / PROFILE`。
+1. 更新本 README 的模型表。
+1. 执行 `bash -n` 和 `bash run.sh --list`。
+1. 首次只做 10~20 step smoke test。
+1. 如果环境/profile/source 路径变化，重启 Ray 后再测试。
 
 详细步骤见上一级 `README.md`。
 
@@ -79,4 +79,5 @@ bash run.sh \
   --restart-ray
 ```
 
-该参数会在训练前停止当前节点旧 Ray、按模型 profile 创建新 head 并验证 worker 环境。仅支持 `N_NODES=1`；多节点请继续手动管理所有节点的 Ray。
+该参数会在训练前停止当前节点旧 Ray、按模型 profile 创建新 head 并验证 worker 环境。仅支持 `N_NODES=1`；多节点请继续手动管理所有节点的
+Ray。

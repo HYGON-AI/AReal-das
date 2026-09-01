@@ -4,7 +4,8 @@
 
 ## 镜像安装路径
 
-推荐使用包含 HCU 运行时、HCU 版 PyTorch 和 SGLang 的基础镜像。请从[光源社区](https://developer.sourcefind.cn/servicelist/detail?post_id=1abf923f-5a33-11f1-9e57-0242ac150003)获取实际镜像名称和标签：
+推荐使用包含 HCU 运行时、HCU 版 PyTorch 和 SGLang
+的基础镜像。请从[光源社区](https://developer.sourcefind.cn/servicelist/detail?post_id=1abf923f-5a33-11f1-9e57-0242ac150003)获取实际镜像名称和标签：
 
 ```bash
 docker pull REPOSITORY:TAG
@@ -22,6 +23,7 @@ docker run -it --name areal-das-hcu --shm-size=64G \
   -v <host-workspace>:/workspace \
   REPOSITORY:TAG /bin/bash
 ```
+
 进入容器后，在仓库根目录执行：
 
 ```bash
@@ -29,7 +31,8 @@ python -m pip install -r requirements-hcu.txt
 python -m pip install -e . --no-deps
 ```
 
-`--no-deps` 可避免覆盖基础镜像中的 HCU 版 PyTorch、SGLang 和 Megatron。更多容器准备说明见 [`hcu_example/user_guide.md`](../../../hcu_example/user_guide.md)。
+`--no-deps` 可避免覆盖基础镜像中的 HCU 版 PyTorch、SGLang 和 Megatron。更多容器准备说明见
+[`hcu_example/user_guide.md`](../../../hcu_example/user_guide.md)。
 
 ```bash
 source /path/to/venv/bin/activate

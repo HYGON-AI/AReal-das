@@ -14,7 +14,7 @@ def patch_qwen_vl_visual_forward_for_packed_text(vision_model: nn.Module) -> Non
     original_forward = vision_model.forward
 
     def patched_visual_forward(self, hidden_states, grid_thw, **kwargs):
-        # nhb: These fields describe packed text tokens. Qwen-VL vision must
+        # These fields describe packed text tokens. Qwen-VL vision must
         # derive its own visual sequence lengths from image_grid_thw.
         for key in (
             "cu_seqlens",

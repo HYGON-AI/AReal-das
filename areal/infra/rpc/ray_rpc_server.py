@@ -8,6 +8,7 @@ from concurrent.futures import Future
 from typing import Any
 
 import ray
+import torch
 
 from areal.api import InferenceEngine, TrainEngine
 from areal.api.cli_args import BaseExperimentConfig
@@ -20,8 +21,6 @@ from areal.utils.data import (
 from areal.utils.dynamic_import import import_from_string
 from areal.utils.network import find_free_ports
 
-
-import torch
 
 @ray.remote
 class RayRPCServer:
@@ -38,10 +37,9 @@ class RayRPCServer:
     """
 
     def __init__(self):
-
         self.logger = logging.getLogger("RayRPCServer")
         self.logger.info(
-            "NHBDebug RayRPCServer device env: CUDA_VISIBLE_DEVICES=%s, "
+            "Debug RayRPCServer device env: CUDA_VISIBLE_DEVICES=%s, "
             "HIP_VISIBLE_DEVICES=%s, ROCR_VISIBLE_DEVICES=%s, torch_count=%s",
             os.environ.get("CUDA_VISIBLE_DEVICES"),
             os.environ.get("HIP_VISIBLE_DEVICES"),
@@ -49,11 +47,10 @@ class RayRPCServer:
             torch.cuda.device_count(),
         )
 
-
         self._engines: dict[str, TrainEngine | InferenceEngine] = {}
         self._default_engine_name: str | None = None  # For backward compatibility
         self._allocated_port = set()
-        
+
     def _get_device(self):
         # lazy resolve the device inside worker process
         from areal.infra.platforms import current_platform

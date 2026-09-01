@@ -75,6 +75,7 @@ def _merge_qkv_weights(
     out_shape = [-1, hidden_dim] if ".bias" not in mcore_weights_name else [-1]
     return torch.cat([q, k, v], dim=1).view(*out_shape).contiguous()
 
+
 def _load_fused_qkv_weight(
     hf_config,
     hf_weights_safe_slice: list,
@@ -423,7 +424,10 @@ def _weight_to_mcore_tp(
         else:
             # Single fc1 weight (e.g., vision encoder MLP without gate/up split)
             res = _slice_generic_weight(
-                mcore_param_shape, hf_weights_safe_slice, tp_rank, tp_size,
+                mcore_param_shape,
+                hf_weights_safe_slice,
+                tp_rank,
+                tp_size,
                 mcore_weights_name=mcore_weights_name,
             )
     elif "mlp.experts.linear_fc2.weight" in mcore_weights_name:
@@ -445,7 +449,10 @@ def _weight_to_mcore_tp(
             res = _slice_moe_expert_weight(hf_weights_safe_slice, tp_rank, tp_size)
     else:
         res = _slice_generic_weight(
-            mcore_param_shape, hf_weights_safe_slice, tp_rank, tp_size,
+            mcore_param_shape,
+            hf_weights_safe_slice,
+            tp_rank,
+            tp_size,
             mcore_weights_name=mcore_weights_name,
         )
 

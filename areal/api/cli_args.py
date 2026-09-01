@@ -2574,6 +2574,7 @@ class SchedulerConfig:
         },
     )
 
+
 @dataclass
 class _DatasetConfig:
     """Configuration for dataset loading and preprocessing."""

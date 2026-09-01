@@ -21,25 +21,25 @@
 
 安装项目依赖：
 
-~~~bash
+```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements-hcu.txt
-~~~
+```
 
 HCU 专用包可能无法从公共 PyPI 获取，请使用与 DTK 版本匹配的发行包或软件源。具体路径和 Qwen3-8B 冒烟测试请参阅 [README](README.md)。
 
 ## 提交改动
 
 1. 从最新主分支创建描述清晰的分支。
-2. 保持改动范围聚焦；不要混入格式化无关文件或生成产物。
-3. 不要提交模型权重、训练日志、checkpoint、内部 IP、内部地址、账号、令牌、密钥或密码。
-4. 修改源码时，保留已有的 SPDX 和上游版权声明；新增海光修改应包含：
+1. 保持改动范围聚焦；不要混入格式化无关文件或生成产物。
+1. 不要提交模型权重、训练日志、checkpoint、内部 IP、内部地址、账号、令牌、密钥或密码。
+1. 修改源码时，保留已有的 SPDX 和上游版权声明；新增海光修改应包含：
 
-~~~text
+```text
 Copyright (c) 2026 Hygon Information Technology Co., Ltd.
-~~~
+```
 
 5. 同步或修改上游 AReaL 代码时，必须保留 Apache-2.0 许可证和原始版权声明。
 
@@ -47,16 +47,16 @@ Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 
 提交前至少执行：
 
-~~~bash
+```bash
 git diff --check
 pre-commit run --all-files
-~~~
+```
 
 并运行与改动相关的测试。例如：
 
-~~~bash
+```bash
 pytest -q tests/test_hcu.py
-~~~
+```
 
 涉及 HCU 运行路径、启动脚本或模型适配的改动，应至少完成一次可复现验证，并在 PR 中提供：
 
@@ -80,11 +80,11 @@ PR 描述应包括：
 
 提交信息建议使用清晰的类型前缀，例如：
 
-~~~text
+```text
 feat(hcu): add HCU rollout compatibility check
 fix(grpo): handle tokenizer path validation
 docs: update HCU quickstart
-~~~
+```
 
 ## 文档与测试
 

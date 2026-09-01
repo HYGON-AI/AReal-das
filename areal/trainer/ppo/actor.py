@@ -257,11 +257,7 @@ class PPOActor:
     def ppo_update(self, data: list[dict[str, Any]]) -> None:
         # Profile one real PPO update inside the remote actor process.
         profile_dir = os.environ.get("AREAL_TORCH_PROF_DIR")
-        rank = (
-            torch.distributed.get_rank()
-            if torch.distributed.is_initialized()
-            else 0
-        )
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
         target_rank = int(os.environ.get("AREAL_TORCH_PROF_RANK", "0"))
 
         current_update = self.torch_profile_update
