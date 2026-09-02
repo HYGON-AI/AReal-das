@@ -46,8 +46,14 @@ jobs:
         run: |
           docker run --rm \
             --security-opt label=disable \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e USER=github \
+            -e LOGNAME=github \
             -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
             -e PIP_INDEX_URL=https://pypi.org/simple \
+            -e PRE_COMMIT_HOME=/tmp/pre-commit \
+            -e RUFF_CACHE_DIR=/tmp/ruff-cache \
             -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
             -e PYTHONPATH="${CI_PYTHONPATH}" \
             -v "${GITHUB_WORKSPACE}:/workspace" \
@@ -57,14 +63,19 @@ jobs:
               set -euo pipefail
               export PATH=/opt/areal-venv-py31115/bin:${PATH}
               git config --global --add safe.directory /workspace
-              python -m pip install --index-url https://pypi.org/simple pre-commit
-              pre-commit run --all-files
+              python -m venv /tmp/pre-commit-venv
+              /tmp/pre-commit-venv/bin/python -m pip install --index-url https://pypi.org/simple pre-commit
+              /tmp/pre-commit-venv/bin/pre-commit run --all-files
             '
 
       - name: Check Python syntax
         run: |
           docker run --rm \
             --security-opt label=disable \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e USER=github \
+            -e LOGNAME=github \
             -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
             -e PYTHONPATH="${CI_PYTHONPATH}" \
             -e PYTHONPYCACHEPREFIX=/tmp/pycache \

@@ -54,6 +54,10 @@ jobs:
           docker image inspect "${CI_IMAGE}" >/dev/null
           docker run --rm \
             --security-opt label=disable \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e USER=github \
+            -e LOGNAME=github \
             -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
             -e PYTHONPATH="${CI_PYTHONPATH}" \
             -e HF_HUB_OFFLINE \
@@ -73,6 +77,10 @@ jobs:
           '
           docker run --rm \
             --security-opt label=disable \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e USER=github \
+            -e LOGNAME=github \
             -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
             -e PYTHONPATH="${CI_PYTHONPATH}" \
             -e HF_HUB_OFFLINE \
@@ -83,6 +91,7 @@ jobs:
             -w /workspace \
             "${CI_IMAGE}" "${CI_PYTHON}" -m pytest \
             -q --maxfail=1 --durations=20 \
+            -o cache_dir=/tmp/pytest-cache \
             --junitxml=pytest-cpu.xml \
             -m "not slow and not gpu and not multi_gpu and not sglang and not vllm and not integration" \
             tests/test_allocation_mode.py \
