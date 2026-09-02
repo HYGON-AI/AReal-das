@@ -35,7 +35,7 @@ jobs:
       labels: [self-hosted, ci, bw1100, nmz1]
     timeout-minutes: 30
     env:
-      CI_IMAGE: areal-das:1.0.4-20260902
+      CI_IMAGE: ${{ vars.HCU_BASE_IMAGE || 'areal-das:1.0.4-20260902' }}
       CI_PYTHON: /opt/areal-venv-py31115/bin/python
       CI_PYTHONPATH: /opt/hcu_megatron:/workspace:/opt/hcu_megatron/Megatron-Bridge/src:/opt/hcu_megatron/Megatron-LM:/opt/sglang/python:/usr/local/
       HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
@@ -115,3 +115,7 @@ jobs:
           path: pytest-cpu.xml
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Clean generated test artifacts
+        if: always()
+        run: rm -f pytest-cpu.xml
