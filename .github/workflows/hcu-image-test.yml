@@ -44,7 +44,7 @@ jobs:
       labels: [self-hosted, ci, bw1100, nmz1]
     timeout-minutes: 45
     env:
-      BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE }}
+      BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE || 'areal-das:1.0.4-20260902' }}
       IMAGE_TAG: areal-das:hcu-ci-${{ github.sha }}
 
     steps:
