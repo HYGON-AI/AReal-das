@@ -31,7 +31,7 @@ def _gather_logprobs_entropy(
 
 
 def _should_use_torch_compile() -> bool:
-    return not is_npu_available()
+    return not is_npu_available
 
 
 if _should_use_torch_compile():

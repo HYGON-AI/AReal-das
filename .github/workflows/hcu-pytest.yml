@@ -30,9 +30,15 @@ concurrency:
 jobs:
   unit:
     name: Public CPU unit tests
-    runs-on: ubuntu-latest
+    runs-on:
+      group: ci-general
+      labels: [self-hosted, ci, bw1100, nmz1]
     timeout-minutes: 30
     env:
+      CI_IMAGE: areal-das:1.0.4-20260902
+      CI_PYTHON: /opt/areal-venv-py31115/bin/python
+      CI_PYTHONPATH: /opt/hcu_megatron:/workspace:/opt/hcu_megatron/Megatron-Bridge/src:/opt/hcu_megatron/Megatron-LM:/opt/sglang/python:/usr/local/
+      HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       WANDB_MODE: disabled
@@ -43,36 +49,49 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: |
-            requirements-hcu.txt
-            pyproject.toml
-
-      - name: Install CPU test environment
+      - name: Run public CPU unit tests in Python 3.11 CI image
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
-          python -m pip install -r requirements-hcu.txt
-          python -m pip install --no-deps -e .
-          python -m pip install pytest
-
-      - name: Verify CPU-only runtime
-        run: |
-          python - <<'PY'
+          docker image inspect "${CI_IMAGE}" >/dev/null
+          docker run --rm \
+            --security-opt label=disable \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e USER=github \
+            -e LOGNAME=github \
+            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
+            -e PYTHONPATH="${CI_PYTHONPATH}" \
+            -e HF_HUB_OFFLINE \
+            -e TRANSFORMERS_OFFLINE \
+            -e WANDB_MODE \
+            -e PYTHONUTF8 \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            "${CI_IMAGE}" "${CI_PYTHON}" -c '
+          import sys
           import torch
-
+          print("python:", sys.version)
           print("torch:", torch.__version__)
-          print("cuda available:", torch.cuda.is_available())
-          assert not torch.cuda.is_available(), "This workflow must use CPU PyTorch"
-          PY
-
-      - name: Run public CPU unit tests
-        run: |
-          pytest -q --maxfail=1 --durations=20 \
+          print("HCU available:", torch.cuda.is_available())
+          assert sys.version_info[:2] == (3, 11)
+          assert not torch.cuda.is_available(), "This workflow must not expose HCU devices"
+          '
+          docker run --rm \
+            --security-opt label=disable \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e USER=github \
+            -e LOGNAME=github \
+            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
+            -e PYTHONPATH="${CI_PYTHONPATH}" \
+            -e HF_HUB_OFFLINE \
+            -e TRANSFORMERS_OFFLINE \
+            -e WANDB_MODE \
+            -e PYTHONUTF8 \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            "${CI_IMAGE}" "${CI_PYTHON}" -m pytest \
+            -q --maxfail=1 --durations=20 \
+            -o cache_dir=/tmp/pytest-cache \
             --junitxml=pytest-cpu.xml \
             -m "not slow and not gpu and not multi_gpu and not sglang and not vllm and not integration" \
             tests/test_allocation_mode.py \

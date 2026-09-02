@@ -1,0 +1,28 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ENV AREAL_HOME="/workspace/AReal-das" \
+    VENV="/opt/areal-venv-py31115" \
+    SGLANG_ROOT="/opt/sglang" \
+    SGLANG_HOME="/opt/sglang/python" \
+    MEGATRON_HOME="/opt/hcu_megatron" \
+    MEGATRON_ROOT="/opt/hcu_megatron" \
+    MEGATRON_BRIDGE_HOME="/opt/hcu_megatron/Megatron-Bridge" \
+    PATH="/opt/areal-venv-py31115/bin:${PATH}" \
+    PYTHONPATH="/opt/hcu_megatron:/workspace/AReal-das:/opt/hcu_megatron/Megatron-Bridge/src:/opt/hcu_megatron/Megatron-LM:/opt/sglang/python:/usr/local/" \
+    LD_LIBRARY_PATH="/opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib"
+
+WORKDIR /workspace/AReal-das
+
+COPY . .
+
+RUN PIP_INDEX_URL=https://pypi.org/simple \
+    python -m pip install --no-cache-dir "uv_build>=0.9.18,<0.10.0" \
+    && PIP_INDEX_URL=https://pypi.org/simple \
+    python -m pip install --no-cache-dir --no-build-isolation --no-deps -e .
+
+ENTRYPOINT []
+CMD ["bash"]
