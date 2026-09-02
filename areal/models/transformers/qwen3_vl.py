@@ -144,6 +144,7 @@ def patch_qwen3_vl_deepstack_process_for_tp(language_model: nn.Module):
         patched_deepstack_process, language_model
     )
 
+
 def patch_qwen3_vl_visual_forward_for_packed_text(vision_model: nn.Module) -> None:
     """Keep AReaL text packing metadata out of the Qwen3-VL vision encoder."""
     if getattr(vision_model, "_areal_packed_text_kwargs_filtered", False):

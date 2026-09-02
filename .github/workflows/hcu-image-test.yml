@@ -41,7 +41,7 @@ jobs:
     # The ci-general runner group provides Docker and HCU access.
     runs-on:
       group: ci-general
-      labels: [self-hosted, ci, bw1100]
+      labels: [self-hosted, ci, bw1100, nmz1]
     timeout-minutes: 45
     env:
       BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE }}
@@ -63,7 +63,10 @@ jobs:
           test -e /dev/kfd
           test -e /dev/dri
           test -e /dev/mkfd
+          test -x /opt/hyhal/bin/hy-smi
+          /opt/hyhal/bin/hy-smi
           docker version
+          docker image inspect "${BASE_IMAGE}" >/dev/null
 
       - name: Build AReaL-das HCU image
         run: |
@@ -76,28 +79,41 @@ jobs:
       - name: Test imports and HCU visibility in image
         run: |
           docker run --rm \
+            -e UMASK=000 \
+            --shm-size=100g \
+            --network=host \
+            --privileged \
             --device=/dev/kfd \
             --device=/dev/dri \
             --device=/dev/mkfd \
+            --group-add=video \
+            --mount type=bind,src=/opt/hyhal,dst=/opt/hyhal,readonly \
             --cap-add=SYS_PTRACE \
             --security-opt seccomp=unconfined \
             --ulimit memlock=-1:-1 \
             --ipc=host \
-            --shm-size=16g \
+            --user=root \
             "${IMAGE_TAG}" \
-            python -c '
-          from importlib.metadata import version
+            bash -lc 'source /opt/dtk/env.sh && exec python -c "$1"' bash '
+          from importlib.metadata import PackageNotFoundError, version
           from packaging.version import Version
           import areal
           import sglang
           import torch
 
+          try:
+              sglang_version = version("sglang")
+          except PackageNotFoundError:
+              sglang_version = sglang.__version__
+
           print("torch:", torch.__version__, "hip=", torch.version.hip)
           print("areal:", areal.__file__)
-          print("sglang:", sglang.__file__, version("sglang"))
+          print("sglang:", sglang.__file__, sglang_version)
           assert torch.version.hip is not None, "HCU PyTorch is required"
           assert torch.cuda.device_count() > 0, "No HCU device is visible"
-          assert Version(version("sglang")) >= Version("0.5.12")
+          assert torch.cuda.is_available(), "HCU runtime is unavailable"
+          assert torch.ones(1, device="cuda").item() == 1
+          assert Version(sglang_version) >= Version("0.5.12")
           '
 
       - name: Test AReaL source and HCU launchers in image

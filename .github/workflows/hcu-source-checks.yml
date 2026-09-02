@@ -19,28 +19,59 @@ jobs:
     name: Source, format, and shell checks
     runs-on:
       group: ci-general
-      labels: [self-hosted, ci, bw1100]
+      labels: [self-hosted, ci, bw1100, nmz1]
     timeout-minutes: 15
+    env:
+      CI_IMAGE: areal-das:1.0.4-20260902
+      CI_PYTHON: /opt/areal-venv-py31115/bin/python
+      CI_PYTHONPATH: /opt/hcu_megatron:/workspace:/opt/hcu_megatron/Megatron-Bridge/src:/opt/hcu_megatron/Megatron-LM:/opt/sglang/python:/usr/local/
+      HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
 
     steps:
       - name: Check out source
         uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
-      - name: Set up pre-commit
-        run: python -m pip install --upgrade pip pre-commit
+      - name: Verify Python 3.11 CI image
+        run: |
+          docker image inspect "${CI_IMAGE}" >/dev/null
+          docker run --rm \
+            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
+            -e PYTHONPATH="${CI_PYTHONPATH}" \
+            "${CI_IMAGE}" "${CI_PYTHON}" -c \
+            'import sys; print(sys.version); assert sys.version_info[:2] == (3, 11)'
 
       - name: Run pre-commit checks
         # These hooks require a fully installed HCU runtime or regenerate locks;
         # they are run in the matching HCU development environment instead.
-        run: pre-commit run --all-files
+        run: |
+          docker run --rm \
+            --security-opt label=disable \
+            -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
+            -e PIP_INDEX_URL=https://pypi.org/simple \
+            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
+            -e PYTHONPATH="${CI_PYTHONPATH}" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            "${CI_IMAGE}" \
+            bash -lc '
+              set -euo pipefail
+              export PATH=/opt/areal-venv-py31115/bin:${PATH}
+              git config --global --add safe.directory /workspace
+              python -m pip install --index-url https://pypi.org/simple pre-commit
+              pre-commit run --all-files
+            '
 
       - name: Check Python syntax
-        run: python -m compileall -q areal hcu_example
+        run: |
+          docker run --rm \
+            --security-opt label=disable \
+            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
+            -e PYTHONPATH="${CI_PYTHONPATH}" \
+            -e PYTHONPYCACHEPREFIX=/tmp/pycache \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            "${CI_IMAGE}" \
+            "${CI_PYTHON}" -m compileall -q areal hcu_example
 
       - name: Check HCU launcher syntax
         run: |
