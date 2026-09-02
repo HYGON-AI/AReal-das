@@ -9,10 +9,6 @@ on:
         description: "Official HCU SGLang base image (overrides repository variable HCU_BASE_IMAGE)"
         required: false
         type: string
-      base_image_archive:
-        description: "Shared Docker image archive (overrides repository variable HCU_BASE_IMAGE_ARCHIVE)"
-        required: false
-        type: string
   pull_request:
     paths:
       - "areal/**"
@@ -49,7 +45,7 @@ jobs:
     timeout-minutes: 45
     env:
       BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE || 'areal-das:1.0.4-20260902' }}
-      BASE_IMAGE_ARCHIVE: ${{ inputs.base_image_archive || vars.HCU_BASE_IMAGE_ARCHIVE || '/public/home/niuhb/AReal-das-1.0.4-20260902.tar.gz' }}
+      BASE_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE }}
       IMAGE_TAG: areal-das:hcu-ci-${{ github.sha }}
 
     steps:
