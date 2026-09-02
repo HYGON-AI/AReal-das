@@ -105,7 +105,7 @@ jobs:
             --device=/dev/dri \
             --device=/dev/mkfd \
             --group-add=video \
-            --mount type=bind,src=/opt/hyhal,dst=/opt/hyhal,readonly \
+            -v /opt/hyhal:/opt/hyhal:ro \
             --cap-add=SYS_PTRACE \
             --security-opt seccomp=unconfined \
             --ulimit memlock=-1:-1 \
