@@ -32,10 +32,11 @@ jobs:
     name: Public CPU unit tests
     runs-on:
       group: ci-general
-      labels: [self-hosted, ci, bw1100, nmz1]
-    timeout-minutes: 30
+      labels: [self-hosted, ci]
+    timeout-minutes: 45
     env:
-      CI_IMAGE: areal-das:1.0.4-20260902
+      CI_IMAGE: ${{ vars.HCU_BASE_IMAGE || 'areal-das:1.0.4-20260902' }}
+      CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE || '/public/home/niuhb/AReal-das-1.0.4-20260902.tar.gz' }}
       CI_PYTHON: /opt/areal-venv-py31115/bin/python
       CI_PYTHONPATH: /opt/hcu_megatron:/workspace:/opt/hcu_megatron/Megatron-Bridge/src:/opt/hcu_megatron/Megatron-LM:/opt/sglang/python:/usr/local/
       HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
@@ -51,6 +52,14 @@ jobs:
 
       - name: Run public CPU unit tests in Python 3.11 CI image
         run: |
+          if ! docker image inspect "${CI_IMAGE}" >/dev/null 2>&1; then
+            test -r "${CI_IMAGE_ARCHIVE}" || {
+              echo "Docker image ${CI_IMAGE} is unavailable and archive ${CI_IMAGE_ARCHIVE} is not readable."
+              exit 1
+            }
+            echo "Loading ${CI_IMAGE} from ${CI_IMAGE_ARCHIVE}"
+            docker load -i "${CI_IMAGE_ARCHIVE}"
+          fi
           docker image inspect "${CI_IMAGE}" >/dev/null
           docker run --rm \
             --security-opt label=disable \
@@ -115,3 +124,7 @@ jobs:
           path: pytest-cpu.xml
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Clean generated test artifacts
+        if: always()
+        run: rm -f pytest-cpu.xml
