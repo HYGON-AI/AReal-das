@@ -23,13 +23,36 @@ jobs:
       labels: [self-hosted, ci]
     timeout-minutes: 45
     env:
-      CI_IMAGE: ${{ vars.HCU_BASE_IMAGE || 'areal-das:1.0.4-20260902' }}
+      CI_IMAGE: ${{ vars.HCU_BASE_IMAGE }}
       CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE }}
       CI_PYTHON: /opt/areal-venv-py31115/bin/python
       CI_PYTHONPATH: /opt/hcu_megatron:/workspace:/opt/hcu_megatron/Megatron-Bridge/src:/opt/hcu_megatron/Megatron-LM:/opt/sglang/python:/usr/local/
       HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
 
     steps:
+      - name: Prepare CI image and workspace
+        run: |
+          set -Eeuo pipefail
+          test -n "${CI_IMAGE:-}" || {
+            echo "::error::Repository variable HCU_BASE_IMAGE is not configured."
+            exit 2
+          }
+          if ! docker image inspect "${CI_IMAGE}" >/dev/null 2>&1; then
+            test -r "${CI_IMAGE_ARCHIVE}" || {
+              echo "::error::Docker image ${CI_IMAGE} is unavailable and archive ${CI_IMAGE_ARCHIVE} is not readable."
+              exit 2
+            }
+            echo "Loading ${CI_IMAGE} from ${CI_IMAGE_ARCHIVE}"
+            docker load -i "${CI_IMAGE_ARCHIVE}"
+          fi
+          mkdir -p "${GITHUB_WORKSPACE}"
+          docker run --rm \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${CI_IMAGE}" \
+            bash -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
+
       - name: Check out source
         uses: actions/checkout@v6
         with:
@@ -38,14 +61,6 @@ jobs:
 
       - name: Verify Python 3.11 CI image
         run: |
-          if ! docker image inspect "${CI_IMAGE}" >/dev/null 2>&1; then
-            test -r "${CI_IMAGE_ARCHIVE}" || {
-              echo "Docker image ${CI_IMAGE} is unavailable and archive ${CI_IMAGE_ARCHIVE} is not readable."
-              exit 1
-            }
-            echo "Loading ${CI_IMAGE} from ${CI_IMAGE_ARCHIVE}"
-            docker load -i "${CI_IMAGE_ARCHIVE}"
-          fi
           docker image inspect "${CI_IMAGE}" >/dev/null
           docker run --rm \
             -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \

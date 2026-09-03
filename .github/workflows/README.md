@@ -66,8 +66,8 @@ so the smoke test does not depend on Hugging Face network access or a node-local
 cache. Logs and runtime files are retained for 14 days when GitHub's artifact service is
 reachable; an artifact service outage does not replace the training result.
 
-Before checkout, the model workflow uses the CI image to restore runner ownership of the
-reused workspace. Python bytecode writes are disabled inside the root container so
+Before checkout, every HCU workflow uses the CI image to restore runner ownership of the
+reused workspace. Python bytecode writes are disabled inside the root model container so
 subsequent checkouts can clean the workspace without permission errors.
 
 ### Scope of the current smoke checks
