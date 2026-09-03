@@ -13,16 +13,6 @@ on:
       - "requirements-hcu.txt"
       - "pyproject.toml"
       - ".github/workflows/hcu-pr-model-smoke.yml"
-  push:
-    branches: [main]
-    paths:
-      - "areal/**"
-      - "hcu_example/**"
-      - "examples/**"
-      - "requirements-hcu.txt"
-      - "pyproject.toml"
-      - ".github/workflows/hcu-pr-model-smoke.yml"
-
 permissions:
   contents: read
 

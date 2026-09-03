@@ -1,12 +1,9 @@
 name: HCU Source Checks
 
 on:
+  workflow_dispatch:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    branches:
-      - main
-      - v1.0.4
 
 permissions:
   contents: read

@@ -12,15 +12,6 @@ on:
       - "requirements-hcu.txt"
       - "pyproject.toml"
       - ".github/workflows/hcu-pytest.yml"
-  push:
-    branches: [main]
-    paths:
-      - "areal/**"
-      - "tests/**"
-      - "requirements-hcu.txt"
-      - "pyproject.toml"
-      - ".github/workflows/hcu-pytest.yml"
-
 permissions:
   contents: read
 
