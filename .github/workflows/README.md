@@ -1,14 +1,14 @@
 # HCU CI workflows
 
-These workflows validate the public AReaL-das source. Source checks and CPU unit tests run on GitHub-hosted runners. HCU-specific workflows run only on a dedicated self-hosted runner; they never download or expose private model weights.
+These workflows validate the public AReaL-das source on self-hosted runners from the `ci-general` group. Model weights remain local to eligible HCU runners and are never downloaded or exposed by a workflow.
 
 ## `hcu-source-checks.yml`
 
-Runs public source-level checks on GitHub-hosted runners: pre-commit, Python compilation, and shell syntax checks. It is intended to catch formatting and syntax errors early and does not require HCU hardware.
+Runs public source-level checks on `ci-general` runners: pre-commit, Python compilation, and shell syntax checks. It is intended to catch formatting and syntax errors early and does not expose HCU devices to the test container.
 
 ## `hcu-image-test.yml`
 
-Builds `docker/Dockerfile.hcu` and runs an HCU runtime smoke check on a self-hosted GitHub Actions runner labelled `self-hosted`, `linux`, and `hcu`. It checks that:
+Builds `docker/Dockerfile.hcu` and runs an HCU runtime smoke check on a self-hosted runner from the `ci-general` group with labels `self-hosted` and `ci`. It checks that:
 
 - the image imports AReaL-das and SGLang;
 - the image uses HCU PyTorch and exposes at least one HCU device;
@@ -29,20 +29,20 @@ The runner must have Docker access and the HCU device files `/dev/kfd`, `/dev/dr
 
 ### `hcu-pr-model-smoke.yml`
 
-Runs a two-step Qwen3-8B GRPO smoke test (FSDP actor + SGLang rollout) on a dedicated 8-HCU runner. It runs for non-draft pull requests from branches in this repository and for pushes to `main`. Pull requests from forks are deliberately skipped: a public fork must not run arbitrary code in the private HCU, image, and model environment.
+Runs a two-step Qwen3-8B GRPO smoke test (FSDP actor + SGLang rollout) on an eligible 8-HCU runner from the `ci-general` group. It uses `pull_request_target` so fork pull requests can use the target repository's CI variables, then explicitly checks out the pull request merge commit. It also runs for pushes to `main`.
 
-The runner service must define these local-only environment variables; never add their values to repository variables, workflow files, or logs.
+Configure the image, shared archive, and model directory as repository variables. The model directory must be readable at the same path on every eligible `ci-general` runner.
 
-| Runner environment variable | Purpose |
+| Repository variable | Purpose |
 | --- | --- |
-| `AREAL_CI_IMAGE` | Locally available AReaL HCU runtime image tag |
-| `AREAL_CI_MODEL_PATH` | Local Qwen3-8B model directory containing `config.json` |
-| `AREAL_CI_VENV` | Python virtual environment inside the image |
-| `AREAL_CI_MEGATRON_HOME` | Megatron checkout inside the image |
-| `AREAL_CI_SGLANG_ROOT` | SGLang checkout inside the image |
+| `HCU_BASE_IMAGE` | AReaL HCU runtime image tag |
+| `HCU_BASE_IMAGE_ARCHIVE` | Shared image archive loaded when the selected runner does not have the image |
+| `AREAL_CI_MODEL_PATH` | Shared Qwen3-8B model directory containing `config.json` |
+
+The image provides `/opt/areal-venv-py31115`, `/opt/hcu_megatron`, and `/opt/sglang`; these container paths are set directly by the workflow.
 
 It mounts the checked-out PR source read-write and the model directory read-only, uses `/dev/kfd` and `/dev/dri`, then launches two GRPO steps with `MAX_NEW_TOKENS=256` and `N_SAMPLES=1`. Logs and runtime files are retained for 14 days.
 
 ### Scope of the current smoke checks
 
-The model smoke workflow is tied to a protected, dedicated HCU runner. Do not attach its `areal-pr` label to a shared runner or remove the same-repository PR guard. It is not a public online-service test and does not publish a container image.
+The model smoke workflow uses the `ci-general` runner group. Every matching runner must provide eight HCUs and access to the shared image archive and model directory. Because `pull_request_target` checks out and executes the pull request merge commit, repository administrators must treat this workflow as trusted-runner execution of contributor code. It is not a public online-service test and does not publish a container image.

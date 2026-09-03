@@ -4,7 +4,7 @@ name: HCU PR Model Smoke
 
 on:
   workflow_dispatch:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "areal/**"
@@ -33,26 +33,28 @@ concurrency:
 jobs:
   qwen3-8b-grpo:
     name: Qwen3-8B GRPO smoke
-    # A public fork must never execute arbitrary PR code on an internal HCU runner.
-    if: >-
-      github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.draft == false)
-    runs-on: [self-hosted, linux, hcu, areal-pr]
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.draft == false
+    runs-on:
+      group: ci-general
+      labels: [self-hosted, ci]
     timeout-minutes: 120
     env:
-      # Configure these only on the dedicated runner service, never as
-      # repository variables or in this public workflow:
-      # AREAL_CI_IMAGE, AREAL_CI_MODEL_PATH, AREAL_CI_VENV,
-      # AREAL_CI_MEGATRON_HOME, AREAL_CI_SGLANG_ROOT.
+      AREAL_CI_IMAGE: ${{ vars.HCU_BASE_IMAGE }}
+      AREAL_CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE }}
+      AREAL_CI_MODEL_PATH: ${{ vars.AREAL_CI_MODEL_PATH }}
+      AREAL_CI_VENV: /opt/areal-venv-py31115
+      AREAL_CI_MEGATRON_HOME: /opt/hcu_megatron
+      AREAL_CI_SGLANG_ROOT: /opt/sglang
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PYTHONUTF8: "1"
 
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
-      - name: Verify dedicated HCU runner configuration
+      - name: Verify HCU configuration and image
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -71,6 +73,14 @@ jobs:
           test -f "${AREAL_CI_MODEL_PATH}/config.json"
           test -e /dev/kfd
           test -e /dev/dri
+          if ! docker image inspect "${AREAL_CI_IMAGE}" >/dev/null 2>&1; then
+            test -r "${AREAL_CI_IMAGE_ARCHIVE}" || {
+              echo "::error::Docker image ${AREAL_CI_IMAGE} is unavailable and archive ${AREAL_CI_IMAGE_ARCHIVE} is not readable."
+              exit 2
+            }
+            echo "Loading ${AREAL_CI_IMAGE} from ${AREAL_CI_IMAGE_ARCHIVE}"
+            docker load -i "${AREAL_CI_IMAGE_ARCHIVE}"
+          fi
           docker image inspect "${AREAL_CI_IMAGE}" >/dev/null
 
       - name: Run Qwen3-8B GRPO two-step smoke test
