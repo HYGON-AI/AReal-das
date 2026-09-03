@@ -45,17 +45,33 @@ jobs:
       labels: [self-hosted, ci]
     timeout-minutes: 45
     env:
-      BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE || 'areal-das:1.0.4-20260902' }}
+      BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE }}
       BASE_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE }}
       IMAGE_TAG: areal-das:hcu-ci-${{ github.sha }}
 
     steps:
-      - name: Check base-image configuration
+      - name: Prepare base image and workspace
         run: |
+          set -Eeuo pipefail
           test -n "${BASE_IMAGE}" || {
             echo "Set repository variable HCU_BASE_IMAGE or provide workflow_dispatch input base_image."
             exit 1
           }
+          if ! docker image inspect "${BASE_IMAGE}" >/dev/null 2>&1; then
+            test -r "${BASE_IMAGE_ARCHIVE}" || {
+              echo "::error::Docker image ${BASE_IMAGE} is unavailable and archive ${BASE_IMAGE_ARCHIVE} is not readable."
+              exit 2
+            }
+            echo "Loading ${BASE_IMAGE} from ${BASE_IMAGE_ARCHIVE}"
+            docker load -i "${BASE_IMAGE_ARCHIVE}"
+          fi
+          mkdir -p "${GITHUB_WORKSPACE}"
+          docker run --rm \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${BASE_IMAGE}" \
+            bash -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
 
       - name: Check out source
         uses: actions/checkout@v6
@@ -71,20 +87,6 @@ jobs:
           test -x /opt/hyhal/bin/hy-smi
           /opt/hyhal/bin/hy-smi
           docker version
-
-      - name: Ensure base image is available
-        run: |
-          if docker image inspect "${BASE_IMAGE}" >/dev/null 2>&1; then
-            echo "Using existing local image: ${BASE_IMAGE}"
-          else
-            test -r "${BASE_IMAGE_ARCHIVE}" || {
-              echo "Docker image ${BASE_IMAGE} is unavailable and archive ${BASE_IMAGE_ARCHIVE} is not readable."
-              exit 1
-            }
-            echo "Loading ${BASE_IMAGE} from ${BASE_IMAGE_ARCHIVE}"
-            docker load -i "${BASE_IMAGE_ARCHIVE}"
-            docker image inspect "${BASE_IMAGE}" >/dev/null
-          fi
 
       - name: Build AReaL-das HCU image
         run: |

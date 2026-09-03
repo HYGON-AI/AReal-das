@@ -49,10 +49,35 @@ jobs:
       PYTHONUTF8: "1"
 
     steps:
+      - name: Prepare CI image and workspace
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${AREAL_CI_IMAGE:-}" || {
+            echo "::error::Repository variable HCU_BASE_IMAGE is not configured."
+            exit 2
+          }
+          if ! docker image inspect "${AREAL_CI_IMAGE}" >/dev/null 2>&1; then
+            test -r "${AREAL_CI_IMAGE_ARCHIVE}" || {
+              echo "::error::Docker image ${AREAL_CI_IMAGE} is unavailable and archive ${AREAL_CI_IMAGE_ARCHIVE} is not readable."
+              exit 2
+            }
+            echo "Loading ${AREAL_CI_IMAGE} from ${AREAL_CI_IMAGE_ARCHIVE}"
+            docker load -i "${AREAL_CI_IMAGE_ARCHIVE}"
+          fi
+          mkdir -p "${GITHUB_WORKSPACE}"
+          docker run --rm \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${AREAL_CI_IMAGE}" \
+            bash -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
+
       - name: Check out source
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          # Required to test the fork merge commit from this pull_request_target job.
           allow-unsafe-pr-checkout: true
 
       - name: Verify HCU configuration and image
@@ -76,14 +101,6 @@ jobs:
           test -e /dev/dri
           test -e /dev/mkfd
           test -x /opt/hyhal/bin/hy-smi
-          if ! docker image inspect "${AREAL_CI_IMAGE}" >/dev/null 2>&1; then
-            test -r "${AREAL_CI_IMAGE_ARCHIVE}" || {
-              echo "::error::Docker image ${AREAL_CI_IMAGE} is unavailable and archive ${AREAL_CI_IMAGE_ARCHIVE} is not readable."
-              exit 2
-            }
-            echo "Loading ${AREAL_CI_IMAGE} from ${AREAL_CI_IMAGE_ARCHIVE}"
-            docker load -i "${AREAL_CI_IMAGE_ARCHIVE}"
-          fi
           docker image inspect "${AREAL_CI_IMAGE}" >/dev/null
 
       - name: Run Qwen3-8B GRPO two-step smoke test
@@ -123,12 +140,14 @@ jobs:
             -e AREAL_RUNTIME_ROOT=/workspace/AReaL-das/ci-runtime \
             -e AREAL_CACHE_ROOT=/workspace/AReaL-das/ci-cache \
             -e CI_SUCCESS_MARKER=/workspace/AReaL-das/ci-artifacts/smoke-success \
+            -e SMOKE_DATASET_PATH=/workspace/AReaL-das/ci-runtime/math-smoke-dataset \
             -e RAY_TMPDIR=/dev/shm/ray-pr-model-smoke \
             -e TOTAL_TRAIN_STEPS=2 \
             -e MAX_NEW_TOKENS=256 \
             -e N_SAMPLES=1 \
             -e SGLANG_MEM_FRACTION_STATIC=0.4 \
             -e SGLANG_ROCM_USE_AITER_MOE=0 \
+            -e PYTHONDONTWRITEBYTECODE=1 \
             -w /workspace/AReaL-das \
             "${AREAL_CI_IMAGE}" \
             bash -s <<'CONTAINER_SCRIPT'
@@ -141,7 +160,11 @@ jobs:
           source "${VENV}/bin/activate"
           python - <<'PY'
           import json
+          import os
+          import shutil
+
           import torch
+          from datasets import Dataset, DatasetDict
 
           with open("/model/config.json", encoding="utf-8") as config_file:
               config = json.load(config_file)
@@ -153,7 +176,42 @@ jobs:
           print(f"torch={torch.__version__}, hip={torch.version.hip}, devices={count}")
           assert torch.version.hip is not None, "HCU/ROCm PyTorch is required"
           assert count >= 8, "Qwen3-8B smoke test requires eight visible HCUs"
+
+          dataset_path = os.environ["SMOKE_DATASET_PATH"]
+          shutil.rmtree(dataset_path, ignore_errors=True)
+          samples = [
+              ("What is 1 + 1?", "2"),
+              ("What is 3 + 4?", "7"),
+              ("What is 9 - 5?", "4"),
+              ("What is 6 times 3?", "18"),
+              ("What is 20 divided by 4?", "5"),
+              ("What is 7 + 8?", "15"),
+              ("What is 12 - 7?", "5"),
+              ("What is 5 times 5?", "25"),
+          ]
+          records = [
+              {
+                  "messages": [
+                      {
+                          "role": "user",
+                          "content": question
+                          + "\nPlease put your final answer within \\boxed{}.",
+                      }
+                  ],
+                  "answer": f"#### {answer}",
+              }
+              for question, answer in samples
+          ]
+          dataset = Dataset.from_list(records)
+          DatasetDict(
+              {"train": dataset, "test": dataset.select(range(4))}
+          ).save_to_disk(dataset_path)
           PY
+          smoke_config="${AREAL_RUNTIME_ROOT}/model-smoke-grpo.yaml"
+          sed "s|path: openai/gsm8k|path: ${SMOKE_DATASET_PATH}|g" \
+            "${AREAL_HOME}/examples/math/gsm8k_grpo.yaml" >"${smoke_config}"
+          test "$(grep -Fc "path: ${SMOKE_DATASET_PATH}" "${smoke_config}")" -eq 2
+          export GRPO_CONFIG=ci-runtime/model-smoke-grpo.yaml
           cd "${AREAL_HOME}/hcu_example/grpo"
           bash run.sh \
             --model=qwen3_8b \
@@ -174,6 +232,7 @@ jobs:
           test -s ci-artifacts/smoke-success
       - name: Upload model smoke logs
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: hcu-qwen3-8b-grpo-smoke-${{ github.run_id }}
