@@ -53,6 +53,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          allow-unsafe-pr-checkout: true
 
       - name: Verify HCU configuration and image
         shell: bash
@@ -73,6 +74,8 @@ jobs:
           test -f "${AREAL_CI_MODEL_PATH}/config.json"
           test -e /dev/kfd
           test -e /dev/dri
+          test -e /dev/mkfd
+          test -x /opt/hyhal/bin/hy-smi
           if ! docker image inspect "${AREAL_CI_IMAGE}" >/dev/null 2>&1; then
             test -r "${AREAL_CI_IMAGE_ARCHIVE}" || {
               echo "::error::Docker image ${AREAL_CI_IMAGE} is unavailable and archive ${AREAL_CI_IMAGE_ARCHIVE} is not readable."
@@ -90,17 +93,22 @@ jobs:
           mkdir -p ci-artifacts ci-runtime ci-cache
           trap 'chmod -R a+rX ci-artifacts 2>/dev/null || true' EXIT
 
-          docker run --rm \
+          docker run --rm --interactive \
+            -e UMASK=000 \
             --network=host \
+            --privileged \
             --device=/dev/kfd \
             --device=/dev/dri \
+            --device=/dev/mkfd \
             --group-add video \
+            -v /opt/hyhal:/opt/hyhal:ro \
             --cap-add=SYS_PTRACE \
             --security-opt seccomp=unconfined \
             --ulimit stack=-1:-1 \
             --ulimit memlock=-1:-1 \
             --ipc=host \
-            --shm-size=64G \
+            --shm-size=100G \
+            --user=root \
             -v "${GITHUB_WORKSPACE}:/workspace/AReaL-das" \
             -v "${AREAL_CI_MODEL_PATH}:/model:ro" \
             -e AREAL_HOME=/workspace/AReaL-das \
@@ -114,22 +122,32 @@ jobs:
             -e AREAL_RUNS_ROOT=/workspace/AReaL-das/ci-artifacts/runs \
             -e AREAL_RUNTIME_ROOT=/workspace/AReaL-das/ci-runtime \
             -e AREAL_CACHE_ROOT=/workspace/AReaL-das/ci-cache \
+            -e CI_SUCCESS_MARKER=/workspace/AReaL-das/ci-artifacts/smoke-success \
             -e RAY_TMPDIR=/dev/shm/ray-pr-model-smoke \
             -e TOTAL_TRAIN_STEPS=2 \
             -e MAX_NEW_TOKENS=256 \
             -e N_SAMPLES=1 \
             -e SGLANG_MEM_FRACTION_STATIC=0.4 \
+            -e SGLANG_ROCM_USE_AITER_MOE=0 \
             -w /workspace/AReaL-das \
             "${AREAL_CI_IMAGE}" \
             bash -s <<'CONTAINER_SCRIPT'
           set -Eeuo pipefail
+          trap 'chmod -R a+rwX "${AREAL_RUNS_ROOT}" "${AREAL_RUNTIME_ROOT}" "${AREAL_CACHE_ROOT}" 2>/dev/null || true' EXIT
           test -x "${VENV}/bin/python"
           test -d "${MEGATRON_HOME}/Megatron-LM"
           test -d "${SGLANG_ROOT}/python/sglang"
           test -f "${MODEL_PATH}/config.json"
           source "${VENV}/bin/activate"
           python - <<'PY'
+          import json
           import torch
+
+          with open("/model/config.json", encoding="utf-8") as config_file:
+              config = json.load(config_file)
+          assert config.get("model_type") == "qwen3", config.get("model_type")
+          assert config.get("hidden_size") == 4096, config.get("hidden_size")
+          assert config.get("num_hidden_layers") == 36, config.get("num_hidden_layers")
 
           count = torch.cuda.device_count()
           print(f"torch={torch.__version__}, hip={torch.version.hip}, devices={count}")
@@ -144,7 +162,16 @@ jobs:
             --tokenizer-path="${TOKENIZER_PATH}" \
             --gpus-per-node=8 \
             --restart-ray
+
+          train_log="$(find "${AREAL_RUNS_ROOT}" -type f -name train.log -print -quit)"
+          test -n "${train_log}"
+          test -s "${train_log}"
+          completed_steps="$(grep -Ec 'Train step [0-9]+/[0-9]+ done\.' "${train_log}")"
+          test "${completed_steps}" -eq "${TOTAL_TRAIN_STEPS}"
+          grep -Eq "Train step ${TOTAL_TRAIN_STEPS}/[0-9]+ done\." "${train_log}"
+          printf 'Qwen3-8B GRPO two-step smoke test completed.\n' >"${CI_SUCCESS_MARKER}"
           CONTAINER_SCRIPT
+          test -s ci-artifacts/smoke-success
       - name: Upload model smoke logs
         if: always()
         uses: actions/upload-artifact@v4
