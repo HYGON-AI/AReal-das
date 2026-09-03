@@ -63,6 +63,10 @@ the training log contains exactly two completed steps and confirms that step 2
 completed. Because Qwen3-8B is a dense model, the workflow disables SGLang's optional
 AITER MoE backend. Logs and runtime files are retained for 14 days.
 
+Before checkout, the model workflow uses the CI image to restore runner ownership of the
+reused workspace. Python bytecode writes are disabled inside the root container so
+subsequent checkouts can clean the workspace without permission errors.
+
 ### Scope of the current smoke checks
 
 The model smoke workflow uses the `ci-general` runner group. Every matching runner must

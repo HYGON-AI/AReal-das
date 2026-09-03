@@ -49,6 +49,30 @@ jobs:
       PYTHONUTF8: "1"
 
     steps:
+      - name: Prepare CI image and workspace
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${AREAL_CI_IMAGE:-}" || {
+            echo "::error::Repository variable HCU_BASE_IMAGE is not configured."
+            exit 2
+          }
+          if ! docker image inspect "${AREAL_CI_IMAGE}" >/dev/null 2>&1; then
+            test -r "${AREAL_CI_IMAGE_ARCHIVE}" || {
+              echo "::error::Docker image ${AREAL_CI_IMAGE} is unavailable and archive ${AREAL_CI_IMAGE_ARCHIVE} is not readable."
+              exit 2
+            }
+            echo "Loading ${AREAL_CI_IMAGE} from ${AREAL_CI_IMAGE_ARCHIVE}"
+            docker load -i "${AREAL_CI_IMAGE_ARCHIVE}"
+          fi
+          mkdir -p "${GITHUB_WORKSPACE}"
+          docker run --rm \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${AREAL_CI_IMAGE}" \
+            bash -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
+
       - name: Check out source
         uses: actions/checkout@v6
         with:
@@ -77,14 +101,6 @@ jobs:
           test -e /dev/dri
           test -e /dev/mkfd
           test -x /opt/hyhal/bin/hy-smi
-          if ! docker image inspect "${AREAL_CI_IMAGE}" >/dev/null 2>&1; then
-            test -r "${AREAL_CI_IMAGE_ARCHIVE}" || {
-              echo "::error::Docker image ${AREAL_CI_IMAGE} is unavailable and archive ${AREAL_CI_IMAGE_ARCHIVE} is not readable."
-              exit 2
-            }
-            echo "Loading ${AREAL_CI_IMAGE} from ${AREAL_CI_IMAGE_ARCHIVE}"
-            docker load -i "${AREAL_CI_IMAGE_ARCHIVE}"
-          fi
           docker image inspect "${AREAL_CI_IMAGE}" >/dev/null
 
       - name: Run Qwen3-8B GRPO two-step smoke test
@@ -130,6 +146,7 @@ jobs:
             -e N_SAMPLES=1 \
             -e SGLANG_MEM_FRACTION_STATIC=0.4 \
             -e SGLANG_ROCM_USE_AITER_MOE=0 \
+            -e PYTHONDONTWRITEBYTECODE=1 \
             -w /workspace/AReaL-das \
             "${AREAL_CI_IMAGE}" \
             bash -s <<'CONTAINER_SCRIPT'
