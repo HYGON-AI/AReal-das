@@ -1,0 +1,147 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+name: HCU PR Model Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "areal/**"
+      - "hcu_example/**"
+      - "examples/**"
+      - "requirements-hcu.txt"
+      - "pyproject.toml"
+      - ".github/workflows/hcu-pr-model-smoke.yml"
+  push:
+    branches: [main]
+    paths:
+      - "areal/**"
+      - "hcu_example/**"
+      - "examples/**"
+      - "requirements-hcu.txt"
+      - "pyproject.toml"
+      - ".github/workflows/hcu-pr-model-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcu-pr-model-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qwen3-8b-grpo:
+    name: Qwen3-8B GRPO smoke
+    # A public fork must never execute arbitrary PR code on an internal HCU runner.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.draft == false)
+    runs-on: [self-hosted, linux, hcu, areal-pr]
+    timeout-minutes: 120
+    env:
+      # Configure these only on the dedicated runner service, never as
+      # repository variables or in this public workflow:
+      # AREAL_CI_IMAGE, AREAL_CI_MODEL_PATH, AREAL_CI_VENV,
+      # AREAL_CI_MEGATRON_HOME, AREAL_CI_SGLANG_ROOT.
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Verify dedicated HCU runner configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for name in \
+            AREAL_CI_IMAGE \
+            AREAL_CI_MODEL_PATH \
+            AREAL_CI_VENV \
+            AREAL_CI_MEGATRON_HOME \
+            AREAL_CI_SGLANG_ROOT
+          do
+            test -n "${!name:-}" || {
+              echo "::error::Runner environment variable ${name} is not configured."
+              exit 2
+            }
+          done
+          test -f "${AREAL_CI_MODEL_PATH}/config.json"
+          test -e /dev/kfd
+          test -e /dev/dri
+          docker image inspect "${AREAL_CI_IMAGE}" >/dev/null
+
+      - name: Run Qwen3-8B GRPO two-step smoke test
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p ci-artifacts ci-runtime ci-cache
+          trap 'chmod -R a+rX ci-artifacts 2>/dev/null || true' EXIT
+
+          docker run --rm \
+            --network=host \
+            --device=/dev/kfd \
+            --device=/dev/dri \
+            --group-add video \
+            --cap-add=SYS_PTRACE \
+            --security-opt seccomp=unconfined \
+            --ulimit stack=-1:-1 \
+            --ulimit memlock=-1:-1 \
+            --ipc=host \
+            --shm-size=64G \
+            -v "${GITHUB_WORKSPACE}:/workspace/AReaL-das" \
+            -v "${AREAL_CI_MODEL_PATH}:/model:ro" \
+            -e AREAL_HOME=/workspace/AReaL-das \
+            -e VENV="${AREAL_CI_VENV}" \
+            -e PYTHON_BIN="${AREAL_CI_VENV}/bin/python" \
+            -e MEGATRON_HOME="${AREAL_CI_MEGATRON_HOME}" \
+            -e SGLANG_ROOT="${AREAL_CI_SGLANG_ROOT}" \
+            -e SGLANG_HOME="${AREAL_CI_SGLANG_ROOT}/python" \
+            -e MODEL_PATH=/model \
+            -e TOKENIZER_PATH=/model \
+            -e AREAL_RUNS_ROOT=/workspace/AReaL-das/ci-artifacts/runs \
+            -e AREAL_RUNTIME_ROOT=/workspace/AReaL-das/ci-runtime \
+            -e AREAL_CACHE_ROOT=/workspace/AReaL-das/ci-cache \
+            -e RAY_TMPDIR=/dev/shm/ray-pr-model-smoke \
+            -e TOTAL_TRAIN_STEPS=2 \
+            -e MAX_NEW_TOKENS=256 \
+            -e N_SAMPLES=1 \
+            -e SGLANG_MEM_FRACTION_STATIC=0.4 \
+            -w /workspace/AReaL-das \
+            "${AREAL_CI_IMAGE}" \
+            bash -s <<'CONTAINER_SCRIPT'
+          set -Eeuo pipefail
+          test -x "${VENV}/bin/python"
+          test -d "${MEGATRON_HOME}/Megatron-LM"
+          test -d "${SGLANG_ROOT}/python/sglang"
+          test -f "${MODEL_PATH}/config.json"
+          source "${VENV}/bin/activate"
+          python - <<'PY'
+          import torch
+
+          count = torch.cuda.device_count()
+          print(f"torch={torch.__version__}, hip={torch.version.hip}, devices={count}")
+          assert torch.version.hip is not None, "HCU/ROCm PyTorch is required"
+          assert count >= 8, "Qwen3-8B smoke test requires eight visible HCUs"
+          PY
+          cd "${AREAL_HOME}/hcu_example/grpo"
+          bash run.sh \
+            --model=qwen3_8b \
+            --backend=fsdp \
+            --model-path="${MODEL_PATH}" \
+            --tokenizer-path="${TOKENIZER_PATH}" \
+            --gpus-per-node=8 \
+            --restart-ray
+          CONTAINER_SCRIPT
+      - name: Upload model smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hcu-qwen3-8b-grpo-smoke-${{ github.run_id }}
+          path: |
+            ci-artifacts/
+            ci-runtime/
+          if-no-files-found: ignore
+          retention-days: 14
