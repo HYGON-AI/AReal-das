@@ -1,7 +1,8 @@
 name: HCU Source Checks
 
 on:
-  pull_request:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - main
@@ -11,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: hcu-source-checks-${{ github.workflow }}-${{ github.ref }}
+  group: hcu-source-checks-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -31,6 +32,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Verify Python 3.11 CI image
         run: |
