@@ -19,17 +19,6 @@ on:
       - "pyproject.toml"
       - "docker/Dockerfile.hcu"
       - ".github/workflows/hcu-image-test.yml"
-  push:
-    branches: [main]
-    paths:
-      - "areal/**"
-      - "examples/**"
-      - "hcu_example/**"
-      - "requirements-hcu.txt"
-      - "pyproject.toml"
-      - "docker/Dockerfile.hcu"
-      - ".github/workflows/hcu-image-test.yml"
-
 permissions:
   contents: read
 

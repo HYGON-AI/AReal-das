@@ -42,7 +42,9 @@ configure registry credentials only on the self-hosted runner.
 Runs a two-step Qwen3-8B GRPO smoke test (FSDP actor + SGLang rollout) on an eligible
 8-HCU runner from the `ci-general` group. It uses `pull_request_target` so fork pull
 requests can use the target repository's CI variables, then explicitly checks out the
-pull request merge commit. It also runs for pushes to `main`.
+pull request merge commit. HCU workflows run automatically only during the pull request
+stage; merging to `main` does not run them again. Maintainers can still start them
+manually with `workflow_dispatch`.
 
 Configure the image, shared archive, and model directory as repository variables. The
 model directory must be readable at the same path on every eligible `ci-general` runner.
