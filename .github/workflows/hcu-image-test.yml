@@ -9,11 +9,8 @@ on:
         description: "Official HCU SGLang base image (overrides repository variable HCU_BASE_IMAGE)"
         required: false
         type: string
-      base_image_archive:
-        description: "Shared Docker image archive (overrides repository variable HCU_BASE_IMAGE_ARCHIVE)"
-        required: false
-        type: string
-  pull_request:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "areal/**"
       - "examples/**"
@@ -37,7 +34,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: hcu-image-test-${{ github.workflow }}-${{ github.ref }}
+  group: hcu-image-test-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -49,7 +46,7 @@ jobs:
     timeout-minutes: 45
     env:
       BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE || 'areal-das:1.0.4-20260902' }}
-      BASE_IMAGE_ARCHIVE: ${{ inputs.base_image_archive || vars.HCU_BASE_IMAGE_ARCHIVE || '/public/home/niuhb/AReal-das-1.0.4-20260902.tar.gz' }}
+      BASE_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE }}
       IMAGE_TAG: areal-das:hcu-ci-${{ github.sha }}
 
     steps:
@@ -62,6 +59,9 @@ jobs:
 
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Check HCU runner prerequisites
         run: |

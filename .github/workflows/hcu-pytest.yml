@@ -4,7 +4,8 @@ name: HCU Pytest
 
 on:
   workflow_dispatch:
-  pull_request:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "areal/**"
       - "tests/**"
@@ -24,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pytest-cpu-${{ github.workflow }}-${{ github.ref }}
+  group: pytest-cpu-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,7 +37,7 @@ jobs:
     timeout-minutes: 45
     env:
       CI_IMAGE: ${{ vars.HCU_BASE_IMAGE || 'areal-das:1.0.4-20260902' }}
-      CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE || '/public/home/niuhb/AReal-das-1.0.4-20260902.tar.gz' }}
+      CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE }}
       CI_PYTHON: /opt/areal-venv-py31115/bin/python
       CI_PYTHONPATH: /opt/hcu_megatron:/workspace:/opt/hcu_megatron/Megatron-Bridge/src:/opt/hcu_megatron/Megatron-LM:/opt/sglang/python:/usr/local/
       HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
@@ -49,6 +50,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Run public CPU unit tests in Python 3.11 CI image
         run: |
