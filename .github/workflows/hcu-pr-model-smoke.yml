@@ -38,10 +38,12 @@ jobs:
       github.event_name != 'pull_request' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.pull_request.draft == false)
-    runs-on: [self-hosted, linux, hcu, areal-pr]
+    runs-on:
+      group: ci-general
+      labels: [self-hosted, ci]
     timeout-minutes: 120
     env:
-      # Configure these only on the dedicated runner service, never as
+      # Configure these on every eligible ci-general runner service, never as
       # repository variables or in this public workflow:
       # AREAL_CI_IMAGE, AREAL_CI_MODEL_PATH, AREAL_CI_VENV,
       # AREAL_CI_MEGATRON_HOME, AREAL_CI_SGLANG_ROOT.
@@ -52,7 +54,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
-      - name: Verify dedicated HCU runner configuration
+      - name: Verify HCU runner configuration
         shell: bash
         run: |
           set -Eeuo pipefail

@@ -1,14 +1,14 @@
 # HCU CI workflows
 
-These workflows validate the public AReaL-das source. Source checks and CPU unit tests run on GitHub-hosted runners. HCU-specific workflows run only on a dedicated self-hosted runner; they never download or expose private model weights.
+These workflows validate the public AReaL-das source on self-hosted runners from the `ci-general` group. Model weights remain local to eligible HCU runners and are never downloaded or exposed by a workflow.
 
 ## `hcu-source-checks.yml`
 
-Runs public source-level checks on GitHub-hosted runners: pre-commit, Python compilation, and shell syntax checks. It is intended to catch formatting and syntax errors early and does not require HCU hardware.
+Runs public source-level checks on `ci-general` runners: pre-commit, Python compilation, and shell syntax checks. It is intended to catch formatting and syntax errors early and does not expose HCU devices to the test container.
 
 ## `hcu-image-test.yml`
 
-Builds `docker/Dockerfile.hcu` and runs an HCU runtime smoke check on a self-hosted GitHub Actions runner labelled `self-hosted`, `linux`, and `hcu`. It checks that:
+Builds `docker/Dockerfile.hcu` and runs an HCU runtime smoke check on a self-hosted runner from the `ci-general` group with labels `self-hosted` and `ci`. It checks that:
 
 - the image imports AReaL-das and SGLang;
 - the image uses HCU PyTorch and exposes at least one HCU device;
@@ -29,9 +29,9 @@ The runner must have Docker access and the HCU device files `/dev/kfd`, `/dev/dr
 
 ### `hcu-pr-model-smoke.yml`
 
-Runs a two-step Qwen3-8B GRPO smoke test (FSDP actor + SGLang rollout) on a dedicated 8-HCU runner. It runs for non-draft pull requests from branches in this repository and for pushes to `main`. Pull requests from forks are deliberately skipped: a public fork must not run arbitrary code in the private HCU, image, and model environment.
+Runs a two-step Qwen3-8B GRPO smoke test (FSDP actor + SGLang rollout) on an eligible 8-HCU runner from the `ci-general` group. It runs for non-draft pull requests from branches in this repository and for pushes to `main`. Pull requests from forks are deliberately skipped: a public fork must not run arbitrary code in the private HCU, image, and model environment.
 
-The runner service must define these local-only environment variables; never add their values to repository variables, workflow files, or logs.
+Every `ci-general` runner eligible for this job must define these local-only environment variables; never add their values to repository variables, workflow files, or logs.
 
 | Runner environment variable | Purpose |
 | --- | --- |
@@ -45,4 +45,4 @@ It mounts the checked-out PR source read-write and the model directory read-only
 
 ### Scope of the current smoke checks
 
-The model smoke workflow is tied to a protected, dedicated HCU runner. Do not attach its `areal-pr` label to a shared runner or remove the same-repository PR guard. It is not a public online-service test and does not publish a container image.
+The model smoke workflow uses the `ci-general` runner group. Every matching runner must provide eight HCUs, the required local image and model, and all `AREAL_CI_*` environment variables. Do not remove the same-repository PR guard. It is not a public online-service test and does not publish a container image.
