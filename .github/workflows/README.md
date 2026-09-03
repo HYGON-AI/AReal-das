@@ -59,8 +59,9 @@ these container paths are set directly by the workflow.
 It mounts the checked-out PR source read-write and the model directory read-only, uses
 `/dev/kfd`, `/dev/dri`, `/dev/mkfd`, and the host HCU management library, then launches
 two GRPO steps with `MAX_NEW_TOKENS=256` and `N_SAMPLES=1`. The job succeeds only when
-the training log confirms step 2 of 2 completed. Logs and runtime files are retained for
-14 days.
+the training log contains exactly two completed steps and confirms that step 2
+completed. Because Qwen3-8B is a dense model, the workflow disables SGLang's optional
+AITER MoE backend. Logs and runtime files are retained for 14 days.
 
 ### Scope of the current smoke checks
 
