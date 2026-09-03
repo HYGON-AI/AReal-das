@@ -69,4 +69,6 @@ The model smoke workflow uses the `ci-general` runner group. Every matching runn
 provide eight HCUs and access to the shared image archive and model directory. Because
 `pull_request_target` checks out and executes the pull request merge commit, repository
 administrators must treat this workflow as trusted-runner execution of contributor code.
-It is not a public online-service test and does not publish a container image.
+The HCU workflows explicitly opt in to this checkout behavior required by
+`actions/checkout@v6`. They are not public online-service tests and do not publish a
+container image.

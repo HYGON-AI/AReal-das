@@ -34,6 +34,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          allow-unsafe-pr-checkout: true
 
       - name: Verify Python 3.11 CI image
         run: |
