@@ -60,9 +60,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          allow-unsafe-pr-checkout: true
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
       - name: Check HCU runner prerequisites
         run: |
