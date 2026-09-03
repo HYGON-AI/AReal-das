@@ -29,7 +29,7 @@ The runner must have Docker access and the HCU device files `/dev/kfd`, `/dev/dr
 
 ### `hcu-pr-model-smoke.yml`
 
-Runs a two-step Qwen3-8B GRPO smoke test (FSDP actor + SGLang rollout) on an eligible 8-HCU runner from the `ci-general` group. It runs for non-draft pull requests from branches in this repository and for pushes to `main`. Pull requests from forks are deliberately skipped: a public fork must not run arbitrary code in the private HCU, image, and model environment.
+Runs a two-step Qwen3-8B GRPO smoke test (FSDP actor + SGLang rollout) on an eligible 8-HCU runner from the `ci-general` group. It uses `pull_request_target` so fork pull requests can use the target repository's CI variables, then explicitly checks out the pull request merge commit. It also runs for pushes to `main`.
 
 Configure the image, shared archive, and model directory as repository variables. The model directory must be readable at the same path on every eligible `ci-general` runner.
 
@@ -45,4 +45,4 @@ It mounts the checked-out PR source read-write and the model directory read-only
 
 ### Scope of the current smoke checks
 
-The model smoke workflow uses the `ci-general` runner group. Every matching runner must provide eight HCUs and access to the shared image archive and model directory. Do not remove the same-repository PR guard. It is not a public online-service test and does not publish a container image.
+The model smoke workflow uses the `ci-general` runner group. Every matching runner must provide eight HCUs and access to the shared image archive and model directory. Because `pull_request_target` checks out and executes the pull request merge commit, repository administrators must treat this workflow as trusted-runner execution of contributor code. It is not a public online-service test and does not publish a container image.

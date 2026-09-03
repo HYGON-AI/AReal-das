@@ -4,7 +4,7 @@ name: HCU PR Model Smoke
 
 on:
   workflow_dispatch:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "areal/**"
@@ -33,11 +33,7 @@ concurrency:
 jobs:
   qwen3-8b-grpo:
     name: Qwen3-8B GRPO smoke
-    # A public fork must never execute arbitrary PR code on an internal HCU runner.
-    if: >-
-      github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.draft == false)
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.draft == false
     runs-on:
       group: ci-general
       labels: [self-hosted, ci]
@@ -55,6 +51,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
       - name: Verify HCU configuration and image
         shell: bash
