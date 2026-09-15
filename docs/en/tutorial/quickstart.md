@@ -51,10 +51,16 @@ test -d "${SGLANG_ROOT}/python/sglang"
 test -f "${MODEL_PATH}/config.json"
 
 cd "${AREAL_HOME}/hcu_example/grpo"
-bash run.sh --model=qwen3_8b --backend=fsdp --model-path="${MODEL_PATH}" --tokenizer-path="${TOKENIZER_PATH}" --gpus-per-node=8 --info
+bash run.sh \
+  --model=qwen3 \
+  --variant=dense \
+  --backend=fsdp \
+  --rollout=sglang \
+  --model-path="${MODEL_PATH}" --tokenizer-path="${TOKENIZER_PATH}" \
+  --gpus-per-node=8 --info
 
 TOTAL_TRAIN_STEPS=2 MAX_NEW_TOKENS=256 N_SAMPLES=1 \
-bash run.sh --model=qwen3_8b --backend=fsdp \
+bash run.sh --model=qwen3 --variant=dense --backend=fsdp --rollout=sglang \
   --model-path="${MODEL_PATH}" --tokenizer-path="${TOKENIZER_PATH}" \
   --gpus-per-node=8 --restart-ray
 ```

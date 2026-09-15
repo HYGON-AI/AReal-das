@@ -2,8 +2,14 @@
 # Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 # SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
+# Launcher metadata consumed by grpo/run.sh without sourcing this file.
+HCU_LAUNCHER_FAMILY=qwen3_5
+HCU_LAUNCHER_VARIANT=dense
+HCU_LAUNCHER_ACTOR_BACKEND=fsdp
+HCU_LAUNCHER_ROLLOUT_BACKEND=sglang
+HCU_LAUNCHER_PROFILE=qwen35
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-export AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE:-qwen}"
+export AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE:-qwen35}"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
 
@@ -11,35 +17,31 @@ MODEL_PATH="${MODEL_PATH:?Set MODEL_PATH to the local model directory.}"
 TOKENIZER_PATH="${TOKENIZER_PATH:-${MODEL_PATH}}"
 N_NODES="${N_NODES:-1}"
 N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-8}"
-
 ACTOR_BACKEND="${ACTOR_BACKEND:-fsdp:d4p1t1}"
 ROLLOUT_BACKEND="${ROLLOUT_BACKEND:-sglang:d1p1t4}"
 WEIGHT_UPDATE_MODE="${WEIGHT_UPDATE_MODE:-xccl}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-qwen3-8b}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-qwen3-5-dense}"
 TRIAL_NAME="${TRIAL_NAME:-grpo-fsdp4-sglang-tp4-fa3}"
 TIMESTAMP="${TIMESTAMP:-$(date '+%Y%m%d-%H%M%S')}"
-LOG_DIR="${LOG_DIR:-${AREAL_RUNS_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
+LOG_DIR="${LOG_DIR:-${LOG_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
 LOG_FILE="${LOG_FILE:-${LOG_DIR}/train.log}"
-
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-4}"
 VALID_BATCH_SIZE="${VALID_BATCH_SIZE:-4}"
 N_SAMPLES="${N_SAMPLES:-2}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-1024}"
 TOTAL_TRAIN_EPOCHS="${TOTAL_TRAIN_EPOCHS:-1}"
 TOTAL_TRAIN_STEPS="${TOTAL_TRAIN_STEPS:-10}"
-
 ACTOR_LR="${ACTOR_LR:-1.7e-5}"
-ACTOR_MAX_TOKENS_PER_MB="${ACTOR_MAX_TOKENS_PER_MB:-2048}"
-ACTOR_ATTN_IMPL="${ACTOR_ATTN_IMPL:-sdpa}"
 FSDP_MEMORY_EFFICIENT_LOAD="${FSDP_MEMORY_EFFICIENT_LOAD:-true}"
 FSDP_OFFLOAD_PARAMS="${FSDP_OFFLOAD_PARAMS:-false}"
-
-SGLANG_MEM_FRACTION_STATIC="${SGLANG_MEM_FRACTION_STATIC:-0.4}"
-SGLANG_CHUNKED_PREFILL_SIZE="${SGLANG_CHUNKED_PREFILL_SIZE:-65536}"
+ACTOR_MAX_TOKENS_PER_MB="${ACTOR_MAX_TOKENS_PER_MB:-6144}"
+SGLANG_MEM_FRACTION_STATIC="${SGLANG_MEM_FRACTION_STATIC:-0.80}"
+SGLANG_CHUNKED_PREFILL_SIZE="${SGLANG_CHUNKED_PREFILL_SIZE:--1}"
 SGLANG_PAGE_SIZE="${SGLANG_PAGE_SIZE:-64}"
 SGLANG_ATTENTION_BACKEND="${SGLANG_ATTENTION_BACKEND:-fa3}"
 SGLANG_DISABLE_CUSTOM_ALL_REDUCE="${SGLANG_DISABLE_CUSTOM_ALL_REDUCE:-True}"
-ROLLOUT_SETUP_TIMEOUT="${ROLLOUT_SETUP_TIMEOUT:-900}"
+SGLANG_KV_CACHE_DTYPE="${SGLANG_KV_CACHE_DTYPE:-fp8_e5m2}"
+ACTOR_ATTN_IMPL="${ACTOR_ATTN_IMPL:-sdpa}"
 
 CLUSTER_CONFIG=(
   "scheduler.type=ray" "experiment_name=${EXPERIMENT_NAME}" "trial_name=${TRIAL_NAME}"
@@ -51,10 +53,14 @@ DATA_CONFIG=(
   "train_dataset.batch_size=${TRAIN_BATCH_SIZE}" "valid_dataset.batch_size=${VALID_BATCH_SIZE}"
 )
 ACTOR_CONFIG=(
-  "actor.backend=${ACTOR_BACKEND}" "actor.path=${MODEL_PATH}" "actor.dtype=bfloat16"
-  "actor.disable_dropout=true" "actor.gradient_checkpointing=true"
+  "actor.dtype=bfloat16"
+  "actor.disable_dropout=true"
+  "actor.gradient_checkpointing=true"
+  "actor.optimizer.type=adam"
+  "actor.backend=${ACTOR_BACKEND}"
+  "actor.path=${MODEL_PATH}"
   "actor.weight_update_mode=${WEIGHT_UPDATE_MODE}"
-  "actor.optimizer.type=adam" "actor.optimizer.lr=${ACTOR_LR}"
+  "actor.optimizer.lr=${ACTOR_LR}"
   "actor.mb_spec.max_tokens_per_mb=${ACTOR_MAX_TOKENS_PER_MB}"
   "actor.mb_spec.packing_algorithm=ffd"
   "++actor.attn_impl=${ACTOR_ATTN_IMPL}"
@@ -62,22 +68,31 @@ ACTOR_CONFIG=(
   "++actor.fsdp.offload_params=${FSDP_OFFLOAD_PARAMS}"
 )
 ROLLOUT_CONFIG=(
-  "rollout.backend=${ROLLOUT_BACKEND}" "+rollout.setup_timeout=${ROLLOUT_SETUP_TIMEOUT}"
-  "gconfig.n_samples=${N_SAMPLES}" "gconfig.max_new_tokens=${MAX_NEW_TOKENS}"
+  "rollout.backend=${ROLLOUT_BACKEND}"
+  "gconfig.n_samples=${N_SAMPLES}"
+  "gconfig.max_new_tokens=${MAX_NEW_TOKENS}"
 )
 SGLANG_CONFIG=(
-  "sglang.model_path=${MODEL_PATH}" "tokenizer_path=${TOKENIZER_PATH}"
+  "sglang.model_path=${MODEL_PATH}"
+  "tokenizer_path=${TOKENIZER_PATH}"
+
   "sglang.mem_fraction_static=${SGLANG_MEM_FRACTION_STATIC}"
-  "++sglang.chunked_prefill_size=${SGLANG_CHUNKED_PREFILL_SIZE}" "++sglang.page_size=${SGLANG_PAGE_SIZE}"
-  "++sglang.disable_radix_cache=True" "++sglang.disable_cuda_graph=True"
-  "++sglang.disable_cuda_graph_padding=True" "++sglang.disable_overlap_schedule=True"
+
+  "++sglang.chunked_prefill_size=${SGLANG_CHUNKED_PREFILL_SIZE}"
+  "++sglang.page_size=${SGLANG_PAGE_SIZE}"
+  "++sglang.kv_cache_dtype=${SGLANG_KV_CACHE_DTYPE}"
+  "++sglang.disable_overlap_schedule=True"
   "+sglang.disable_custom_all_reduce=${SGLANG_DISABLE_CUSTOM_ALL_REDUCE}"
+  "++sglang.disable_radix_cache=True"
+  "++sglang.disable_cuda_graph=True"
+  "++sglang.disable_cuda_graph_padding=True"
+
   "++sglang.attention_backend=${SGLANG_ATTENTION_BACKEND}"
 )
-TRAINER_CONFIG=(
-  "total_train_epochs=${TOTAL_TRAIN_EPOCHS}" "++total_train_steps=${TOTAL_TRAIN_STEPS}"
-  "saver.freq_epochs=null" "recover.freq_epochs=null" "evaluator.freq_epochs=null"
-)
+TRAINER_CONFIG=("total_train_epochs=${TOTAL_TRAIN_EPOCHS}")
+if [[ -n "${TOTAL_TRAIN_STEPS}" ]]; then
+  TRAINER_CONFIG+=("++total_train_steps=${TOTAL_TRAIN_STEPS}")
+fi
 
 grpo_prepare_run "${N_NODES}" "$((N_NODES * N_GPUS_PER_NODE))"
 grpo_print_summary

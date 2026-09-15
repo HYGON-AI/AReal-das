@@ -3,6 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
 
+# Launcher metadata consumed by grpo/run.sh without sourcing this file.
+HCU_LAUNCHER_FAMILY=glm5
+HCU_LAUNCHER_VARIANT=moe
+HCU_LAUNCHER_ACTOR_BACKEND=megatron
+HCU_LAUNCHER_ROLLOUT_BACKEND=sglang
+HCU_LAUNCHER_PROFILE=glm5
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 export AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE:-glm5}"
@@ -38,7 +44,7 @@ WEIGHT_UPDATE_MODE="${WEIGHT_UPDATE_MODE:-xccl}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-glm5-4layer-hcu-2nodes-megatron}"
 TRIAL_NAME="${TRIAL_NAME:-tp8-ep8-smoke}"
 TIMESTAMP="${TIMESTAMP:-$(date '+%Y%m%d-%H%M%S')}"
-LOG_DIR="${LOG_DIR:-${AREAL_RUNS_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
+LOG_DIR="${LOG_DIR:-${LOG_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
 LOG_FILE="${LOG_FILE:-${LOG_DIR}/train.log}"
 
 # ==============================================================================
