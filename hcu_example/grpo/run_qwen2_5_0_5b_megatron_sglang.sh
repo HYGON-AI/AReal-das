@@ -39,7 +39,7 @@ MEGATRON_BRIDGE_TYPE="${MEGATRON_BRIDGE_TYPE:-mbridge}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-qwen2-5-0-5b-hcu}"
 TRIAL_NAME="${TRIAL_NAME:-grpo-megatron-tp2-sglang-tp2}"
 TIMESTAMP="${TIMESTAMP:-$(date '+%Y%m%d-%H%M%S')}"
-LOG_DIR="${LOG_DIR:-${AREAL_RUNS_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
+LOG_DIR="${LOG_DIR:-${LOG_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
 LOG_FILE="${LOG_FILE:-${LOG_DIR}/train.log}"
 
 # Keep the first adaptation run small. Override from the shell when needed.
@@ -48,8 +48,10 @@ VALID_BATCH_SIZE="${VALID_BATCH_SIZE:-1}"
 N_SAMPLES="${N_SAMPLES:-4}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-1024}"
 TOTAL_TRAIN_EPOCHS="${TOTAL_TRAIN_EPOCHS:-1}"
-# Empty means follow total_train_epochs. Example smoke run: TOTAL_TRAIN_STEPS=20.
+# Defaults to 10 training steps. Override with TOTAL_TRAIN_STEPS=<N> for smoke runs.
 TOTAL_TRAIN_STEPS="${TOTAL_TRAIN_STEPS:-10}"
+ACTOR_LR="${ACTOR_LR:-1.7e-5}"
+ACTOR_MAX_TOKENS_PER_MB="${ACTOR_MAX_TOKENS_PER_MB:-10240}"
 
 # HCU-safe SGLang settings. All keys below exist in upstream AReaL v1.0.4.
 SGLANG_MEM_FRACTION_STATIC="${SGLANG_MEM_FRACTION_STATIC:-0.4}"
@@ -84,6 +86,8 @@ ACTOR_CONFIG=(
   "actor.backend=${ACTOR_BACKEND}"
   "actor.path=${MODEL_PATH}"
   "actor.weight_update_mode=${WEIGHT_UPDATE_MODE}"
+  "actor.optimizer.lr=${ACTOR_LR}"
+  "actor.mb_spec.max_tokens_per_mb=${ACTOR_MAX_TOKENS_PER_MB}"
   "++actor.megatron.bridge_type=${MEGATRON_BRIDGE_TYPE}"
   "++actor.attn_impl=${ACTOR_ATTN_IMPL}"
 )

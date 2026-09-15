@@ -27,7 +27,7 @@ export AREAL_EXAMPLES_ROOT="${AREAL_EXAMPLES_ROOT:-$(cd "${AREAL_COMMON_DIR}/.."
 #   source hcu_example/common/common_env.sh
 #
 # SGLANG_HOME means the Python source directory (normally <SGLANG_ROOT>/python).
-# MEGATRON_HOME means the directory containing Megatron-LM and Megatron-Bridge.
+# MEGATRON_HOME means the root directory of the Megatron-LM-das repository.
 
 if [[ -n "${AREAL_HOME:-}" ]]; then
   :
@@ -54,6 +54,13 @@ fi
 export VENV_PATH="${VENV}"
 export PYTHON_BIN="${PYTHON_BIN:-${VENV}/bin/python}"
 
+# MEGATRON_HOME is the root directory of the Megatron-LM-das repository.
+# The repositories are stored below:
+#
+#   ${MEGATRON_HOME}/3rdparty/Megatron-LM
+#   ${MEGATRON_HOME}/3rdparty/Megatron-Bridge
+#   ${MEGATRON_HOME}/3rdparty/Megatron-Energon
+#
 # MEGATRON_HOME is canonical; MEGATRON_ROOT is accepted as an alias.
 if [[ -n "${MEGATRON_HOME:-}" ]]; then
   :
@@ -62,7 +69,15 @@ elif [[ -n "${MEGATRON_ROOT:-}" ]]; then
 else
   export MEGATRON_HOME="${BASE_DIR}/hcu_megatron"
 fi
+
 export MEGATRON_ROOT="${MEGATRON_HOME}"
+
+# Megatron repositories are stored under ${MEGATRON_HOME}/3rdparty.
+export MEGATRON_3RDPARTY_HOME="${MEGATRON_3RDPARTY_HOME:-${MEGATRON_HOME}/3rdparty}"
+export MEGATRON_LM_HOME="${MEGATRON_LM_HOME:-${MEGATRON_3RDPARTY_HOME}/Megatron-LM}"
+export MEGATRON_BRIDGE_HOME="${MEGATRON_BRIDGE_HOME:-${MEGATRON_3RDPARTY_HOME}/Megatron-Bridge}"
+export MEGATRON_ENERGON_HOME="${MEGATRON_ENERGON_HOME:-${MEGATRON_3RDPARTY_HOME}/Megatron-Energon}"
+export HCU_MEGATRON_HOME="${HCU_MEGATRON_HOME:-${MEGATRON_HOME}/hcu_megatron}"
 
 # SGLANG_HOME is canonical for the Python source tree.  If only SGLANG_ROOT is
 # exported, SGLANG_HOME is derived as <SGLANG_ROOT>/python.  If SGLANG_HOME is
@@ -86,8 +101,16 @@ if [[ ! -x "${PYTHON_BIN}" ]]; then
   return 1 2>/dev/null || exit 1
 fi
 
-if [[ ! -d "${MEGATRON_HOME}/Megatron-LM" ]]; then
-  echo "[ERROR] Megatron-LM not found: ${MEGATRON_HOME}/Megatron-LM" >&2
+if [[ ! -d "${MEGATRON_LM_HOME}" ]]; then
+  echo "[ERROR] Megatron-LM not found: ${MEGATRON_LM_HOME}" >&2
+  return 1 2>/dev/null || exit 1
+fi
+if [[ ! -d "${MEGATRON_BRIDGE_HOME}/src" ]]; then
+  echo "[ERROR] Megatron-Bridge source not found: ${MEGATRON_BRIDGE_HOME}/src" >&2
+  return 1 2>/dev/null || exit 1
+fi
+if [[ ! -d "${MEGATRON_ENERGON_HOME}" ]]; then
+  echo "[ERROR] Megatron-Energon not found: ${MEGATRON_ENERGON_HOME}" >&2
   return 1 2>/dev/null || exit 1
 fi
 
@@ -109,9 +132,11 @@ source "${VENV}/bin/activate"
 export PATH="${VENV}/bin:${PATH}"
 _AREAL_PYTHONPATH_PARTS=(
   "${MEGATRON_HOME}"
+  "${HCU_MEGATRON_HOME}"
+  "${MEGATRON_LM_HOME}"
+  "${MEGATRON_BRIDGE_HOME}/src"
+  "${MEGATRON_ENERGON_HOME}"
   "${AREAL_HOME}"
-  "${MEGATRON_HOME}/Megatron-Bridge/src"
-  "${MEGATRON_HOME}/Megatron-LM"
   "${SGLANG_HOME}"
 )
 if [[ -n "${AREAL_EXTRA_PYTHONPATH:-}" ]]; then
@@ -270,8 +295,8 @@ areal_preflight_common() {
 
   for dir in \
     "${AREAL_HOME}" \
-    "${MEGATRON_HOME}/Megatron-LM" \
-    "${MEGATRON_HOME}/Megatron-Bridge/src" \
+    "${MEGATRON_LM_HOME}" \
+    "${MEGATRON_BRIDGE_HOME}/src" \
     "${SGLANG_HOME}/sglang" \
     "${VENV}"
   do
@@ -339,7 +364,9 @@ areal_print_python_env() {
   echo "VENV:            ${VENV}"
   echo "Python:          ${PYTHON_BIN}"
   echo "AReaL:           ${AREAL_HOME}"
-  echo "Megatron:        ${MEGATRON_HOME}"
+  echo "Megatron root:   ${MEGATRON_HOME}"
+  echo "Megatron-LM:     ${MEGATRON_LM_HOME}"
+  echo "Megatron-Bridge: ${MEGATRON_BRIDGE_HOME}"
   echo "SGLang source:   ${SGLANG_HOME}"
   echo "Ray:             $(command -v ray 2>/dev/null || echo not-found)"
   "${PYTHON_BIN}" - <<'PY'
@@ -382,7 +409,7 @@ areal_save_env_snapshot() {
     for name in \
       AREAL_ENV_PROFILE AREAL_EXAMPLES_ROOT AREAL_HOME AREAL_ROOT BASE_DIR \
       VENV VENV_PATH PYTHON_BIN DTK_ENV \
-      MEGATRON_HOME MEGATRON_ROOT SGLANG_HOME SGLANG_ROOT AREAL_EXTRA_PYTHONPATH \
+      MEGATRON_HOME MEGATRON_ROOT MEGATRON_3RDPARTY_HOME MEGATRON_LM_HOME MEGATRON_BRIDGE_HOME MEGATRON_ENERGON_HOME HCU_MEGATRON_HOME SGLANG_HOME SGLANG_ROOT AREAL_EXTRA_PYTHONPATH \
       PATH PYTHONPATH \
       CUDA_VISIBLE_DEVICES HIP_VISIBLE_DEVICES ROCR_VISIBLE_DEVICES \
       RAY_ADDRESS RAY_PORT RAY_TMPDIR RAY_DEDUP_LOGS RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO \
@@ -418,7 +445,7 @@ areal_validate_ray_worker_env() {
 
   EXPECTED_VENV="${VENV}" \
   EXPECTED_SGLANG_HOME="${SGLANG_HOME}" \
-  EXPECTED_MEGATRON_LM="${MEGATRON_HOME}/Megatron-LM" \
+  EXPECTED_MEGATRON_LM="${MEGATRON_LM_HOME}" \
   EXPECTED_AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE}" \
   EXPECTED_USE_HCU_CUSTOM_ALLREDUCE="${USE_HCU_CUSTOM_ALLREDUCE:-}" \
   EXPECTED_SGLANG_SET_CPU_AFFINITY="${SGLANG_SET_CPU_AFFINITY:-}" \
@@ -515,7 +542,6 @@ expected_selected_env = {
 
 errors = []
 for r in results:
-    print("Ray worker env:", r)
     exe = pathlib.Path(r["python"]).absolute()
     paths = []
     for x in r["sys_path"]:
@@ -554,6 +580,8 @@ for r in results:
 
 if errors:
     print("[ERROR] Ray worker Python environment mismatch:")
+    for r in results:
+        print("Ray worker env:", r)
     for e in errors:
         print("  -", e)
     print("Ray was started from a different environment. Stop and restart Ray on every node with the same AREAL_ENV_PROFILE and this examples package.")
@@ -562,6 +590,12 @@ if errors:
     print("  AREAL_ENV_PROFILE=%s NUM_GPUS=8 NUM_CPUS=128 bash scripts/start_ray.sh <HEAD_IP>" % os.environ.get("EXPECTED_AREAL_ENV_PROFILE", "qwen"))
     raise SystemExit(3)
 
+for r in results:
+    print(
+        f"[OK] Ray worker env: node={r['requested_node']} "
+        f"host={r['host']} python={r['python']} "
+        f"sglang={r['sglang_spec']}"
+    )
 print(f"[OK] Ray worker Python environment validated on {len(results)} node(s).")
 PY
 }

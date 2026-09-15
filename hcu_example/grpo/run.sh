@@ -8,7 +8,6 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 EXAMPLE_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-AREAL_ROOT_RESOLVED="${AREAL_ROOT:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}"
 
 usage() {
   cat <<'USAGE'
@@ -30,15 +29,15 @@ Single-node Ray + training:
 
 Multi-node Ray lifecycle (run on each physical node):
   # head node
-  bash run.sh --ray-head --model=qwen3_30b_a3b_4layers --backend=fsdp \
+  bash run.sh --ray-head --model=qwen3_30b_a3b_4layers --backend=megatron \
     --ray-address=<head-node-ip>:6379
 
   # worker node
-  bash run.sh --ray-worker --model=qwen3_30b_a3b_4layers --backend=fsdp \
+  bash run.sh --ray-worker --model=qwen3_30b_a3b_4layers --backend=megatron \
     --ray-address=<head-node-ip>:6379 --worker-ip=<worker-node-ip>
 
   # then launch training from the head node
-  bash run.sh --model=qwen3_30b_a3b_4layers --backend=fsdp \
+  bash run.sh --model=qwen3_30b_a3b_4layers --backend=megatron \
     --ray-address=<head-node-ip>:6379
 
 Options:
@@ -165,35 +164,8 @@ simple_world_size() {
   echo $((d * p * t * e * c))
 }
 
-fsdp_adapter_state() {
-  local model="$1"
-  local engine="${AREAL_ROOT_RESOLVED}/areal/engine/fsdp_engine.py"
-  case "${model}" in
-    qwen3_30b_a3b_4layers)
-      if [[ ! -f "${engine}" ]]; then
-        echo "requires-adapter"
-      elif grep -q 'def _iter_rollout_weight_tensors' "${engine}"; then
-        echo "adapter-present"
-      else
-        echo "needs-patch"
-      fi
-      ;;
-    glm5_4layers)
-      if [[ ! -f "${engine}" ]]; then
-        echo "requires-adapter"
-      elif grep -q 'def _iter_rollout_weight_tensors' "${engine}" && \
-           grep -q 'model_type == "glm_moe_dsa"' "${engine}"; then
-        echo "adapter-present"
-      else
-        echo "needs-patch"
-      fi
-      ;;
-    *) echo "not-required" ;;
-  esac
-}
-
 fsdp_audit_one() {
-  local model="$1" file actor train_batch valid_batch dp nodes gpus rollout total_gpu actor_world rollout_world adapter
+  local model="$1" file actor train_batch valid_batch dp nodes gpus rollout total_gpu actor_world rollout_world
   file="$(script_for "${model}" fsdp)"
   [[ -f "${file}" ]] || return 1
 
@@ -207,7 +179,6 @@ fsdp_audit_one() {
   actor_world="$(simple_world_size "${actor}")"
   rollout_world="$(simple_world_size "${rollout}")"
   total_gpu=$((nodes * gpus))
-  adapter="$(fsdp_adapter_state "${model}")"
 
   local status="OK" notes=()
   if ! bash -n "${file}" >/dev/null 2>&1; then
@@ -233,10 +204,6 @@ fsdp_audit_one() {
     status="ERROR"
     notes+=("gpu_budget=$((actor_world + rollout_world))>${total_gpu}")
   fi
-  if [[ "${adapter}" == "needs-patch" || "${adapter}" == "requires-adapter" ]]; then
-    [[ "${status}" == "OK" ]] && status="PATCH"
-    notes+=("${adapter}")
-  fi
 
   printf '%-30s %-6s dp=%-2s batch=%-3s actor=%-16s rollout=%-16s nodes=%sx%s' \
     "${model}" "${status}" "${dp}" "${train_batch}" "${actor}" "${rollout}" "${nodes}" "${gpus}"
@@ -249,7 +216,7 @@ fsdp_audit_one() {
 }
 
 backend_status() {
-  local model="$1" backend="$2" file adapter
+  local model="$1" backend="$2" file
   file="$(script_for "${model}" "${backend}")"
   [[ -f "${file}" ]] || { echo unsupported; return; }
   if ! bash -n "${file}" >/dev/null 2>&1; then
@@ -257,10 +224,6 @@ backend_status() {
     return
   fi
   if [[ "${backend}" == fsdp ]]; then
-    adapter="$(fsdp_adapter_state "${model}")"
-    case "${adapter}" in
-      needs-patch|requires-adapter) echo "${adapter}"; return ;;
-    esac
     local actor batch dp
     actor="$(extract_default "${file}" ACTOR_BACKEND)"
     batch="$(extract_default "${file}" TRAIN_BATCH_SIZE)"
@@ -315,9 +278,6 @@ show_info_one() {
   echo "Train batch:      $(extract_default "${file}" TRAIN_BATCH_SIZE)"
   echo "Valid batch:      $(extract_default "${file}" VALID_BATCH_SIZE)"
   echo "N samples:        $(extract_default "${file}" N_SAMPLES)"
-  if [[ "${backend}" == fsdp ]]; then
-    echo "FSDP adapter:     $(fsdp_adapter_state "${model}")"
-  fi
   echo "============================================================"
 }
 
@@ -427,7 +387,7 @@ if [[ "${DO_CHECK_FSDP}" == 1 ]]; then
     fsdp_audit_one "${model}" || failed=1
   done < <(discover_models)
   echo
-  echo "Legend: OK=configured, PATCH=core adapter required, WARN=non-fatal static warning, ERROR=launcher invalid."
+  echo "Legend: OK=configured, WARN=non-fatal static warning, ERROR=launcher invalid."
   [[ "${failed}" == 0 ]] || exit 2
   exit 0
 fi
@@ -604,11 +564,6 @@ if [[ "${BACKEND}" == fsdp ]]; then
     echo "[ERROR] FSDP launcher static status is ${st}. Run: bash run.sh --check-fsdp" >&2
     exit 2
   fi
-  if [[ "${st}" == needs-patch || "${st}" == requires-adapter ]]; then
-    echo "[ERROR] ${MODEL} FSDP requires the AReaL FSDP adapter before launch." >&2
-    echo "        AREAL_ROOT=${AREAL_ROOT_RESOLVED} bash ${EXAMPLE_ROOT}/patches/apply_fsdp_qwen3moe_glm5_sglang.sh" >&2
-    exit 2
-  fi
 fi
 
 if [[ "${RESTART_RAY}" == 1 ]]; then
@@ -640,8 +595,13 @@ if [[ "${RESTART_RAY}" == 1 ]]; then
   export RAY_ADDRESS="${RAY_HEAD_IP}:${RAY_PORT}"
   echo "===== Restarting single-node Ray for ${MODEL}/${BACKEND} ====="
   echo "profile=${AREAL_ENV_PROFILE} address=${RAY_ADDRESS} gpus=${REQUESTED_GPUS_PER_NODE}"
-  STOP_EXISTING_RAY=1 NUM_GPUS="${REQUESTED_GPUS_PER_NODE}" \
-    bash "${EXAMPLE_ROOT}/scripts/start_ray.sh" "${RAY_HEAD_IP}"
+  if [[ "${DO_DRY_RUN}" == 1 ]]; then
+    STOP_EXISTING_RAY=1 NUM_GPUS="${REQUESTED_GPUS_PER_NODE}" \
+      bash "${EXAMPLE_ROOT}/scripts/start_ray.sh" "${RAY_HEAD_IP}"
+  else
+    VALIDATE_RAY_WORKER_ENV=0 STOP_EXISTING_RAY=1 NUM_GPUS="${REQUESTED_GPUS_PER_NODE}" \
+      bash "${EXAMPLE_ROOT}/scripts/start_ray.sh" "${RAY_HEAD_IP}"
+  fi
 fi
 
 if [[ "${DO_DRY_RUN}" == 1 ]]; then

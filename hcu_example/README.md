@@ -34,7 +34,6 @@ ______________________________________________________________________
         ├── run_qwen3_vl_4b_fsdp_sglang.sh
         ├── run_qwen3_8b_megatron_sglang.sh
         ├── run_qwen3_30b_a3b_4layers_megatron_sglang.sh
-        ├── run_qwen3_5_2b_megatron_sglang.sh
         └── run_glm5_4layers_megatron_sglang.sh
 ```
 
@@ -128,29 +127,46 @@ ______________________________________________________________________
 
 ## 5. 模型脚本可覆盖的常用训练变量
 
-每个 `run_<model>_<backend>_sglang.sh` 都提供默认参数，并允许通过环境变量覆盖一部分配置。不同模型会有额外变量，但日常最常用的是下面这些。
+每个 `run_<model>_<backend>_sglang.sh` 都提供模型专属默认参数，并允许通过环境变量覆盖其中一部分配置。以下 SGLang 变量并非所有
+launcher 都支持，具体适用范围见表中说明。
 
-| 变量                                          | 说明                                     |
-| --------------------------------------------- | ---------------------------------------- |
-| `MODEL_PATH`                                  | 模型目录                                 |
-| `TOKENIZER_PATH`                              | tokenizer 目录，通常与模型目录相同       |
-| `N_NODES`                                     | 训练期望的 Ray 节点数                    |
-| `N_GPUS_PER_NODE`                             | 每节点注册的 HCU 数                      |
-| `ACTOR_BACKEND`                               | Actor 并行拓扑                           |
-| `ROLLOUT_BACKEND`                             | SGLang rollout 并行拓扑                  |
-| `TRAIN_BATCH_SIZE`                            | train dataloader batch                   |
-| `VALID_BATCH_SIZE`                            | validation batch                         |
-| `N_SAMPLES`                                   | 每个 prompt 的 rollout 数量              |
-| `MAX_NEW_TOKENS`                              | rollout 最大生成 token 数                |
-| `TOTAL_TRAIN_STEPS`                           | 总训练 step 数                           |
-| `ACTOR_LR`                                    | Actor learning rate                      |
-| `ACTOR_MAX_TOKENS_PER_MB` / `ACTOR_MB_TOKENS` | Actor micro-batch token 容量             |
-| `SGLANG_MEM_FRACTION_STATIC`                  | SGLang static memory fraction            |
-| `SGLANG_CONTEXT_LENGTH`                       | SGLang context length                    |
-| `SGLANG_CHUNKED_PREFILL_SIZE`                 | chunked prefill 大小                     |
-| `SGLANG_PAGE_SIZE`                            | KV cache page size                       |
-| `SGLANG_ATTENTION_BACKEND`                    | SGLang attention backend                 |
-| `CLEAN_BEFORE_TRAIN`                          | 训练前是否清理本节点旧 AReaL/SGLang 进程 |
+| 变量                                          | 说明                                                                      |
+| --------------------------------------------- | ------------------------------------------------------------------------- |
+| `MODEL_PATH`                                  | 模型目录                                                                  |
+| `TOKENIZER_PATH`                              | tokenizer 目录，通常与模型目录相同                                        |
+| `N_NODES`                                     | 训练期望的 Ray 节点数                                                     |
+| `N_GPUS_PER_NODE`                             | 每节点注册的 HCU 数                                                       |
+| `ACTOR_BACKEND`                               | Actor 并行拓扑                                                            |
+| `ROLLOUT_BACKEND`                             | SGLang rollout 并行拓扑                                                   |
+| `TRAIN_BATCH_SIZE`                            | train dataloader batch                                                    |
+| `VALID_BATCH_SIZE`                            | validation batch                                                          |
+| `N_SAMPLES`                                   | 每个 prompt 的 rollout 数量                                               |
+| `MAX_NEW_TOKENS`                              | rollout 最大生成 token 数                                                 |
+| `TOTAL_TRAIN_STEPS`                           | 总训练 step 数                                                            |
+| `ACTOR_LR`                                    | Actor learning rate                                                       |
+| `ACTOR_MAX_TOKENS_PER_MB` / `ACTOR_MB_TOKENS` | Actor micro-batch token 容量                                              |
+| `SGLANG_MEM_FRACTION_STATIC`                  | SGLang static memory fraction（所有当前 launcher）                        |
+| `SGLANG_CONTEXT_LENGTH`                       | SGLang context length（Qwen3-VL、Qwen3-30B、GLM-5；其他 launcher 不读取） |
+| `SGLANG_CHUNKED_PREFILL_SIZE`                 | chunked prefill 大小（所有当前 launcher）                                 |
+| `SGLANG_PAGE_SIZE`                            | KV cache page size（除 Qwen2.5 FSDP/Megatron 外）                         |
+| `SGLANG_ATTENTION_BACKEND`                    | SGLang attention backend（除 GLM-5 Megatron 外）                          |
+| `CLEAN_BEFORE_TRAIN`                          | 训练前是否清理本节点旧 AReaL/SGLang 进程                                  |
+
+### SGLang override 适用范围
+
+SGLang 覆盖变量由各模型 launcher 独立传递，不保证对所有模型/backend 生效。
+
+- `SGLANG_MEM_FRACTION_STATIC` 和 `SGLANG_CHUNKED_PREFILL_SIZE`：当前所有 launcher
+  都会读取；Qwen2.5 launcher 的 chunked prefill 默认值为 `-1`。
+- `SGLANG_CONTEXT_LENGTH`：当前只由 Qwen3-VL FSDP、Qwen3-30B-A3B Megatron 和 GLM-5 Megatron
+  launcher 传递。
+- `SGLANG_PAGE_SIZE`：Qwen2.5 FSDP 和 Qwen2.5 Megatron launcher 有意不传递；其他当前 launcher
+  会传递该参数。
+- `SGLANG_ATTENTION_BACKEND`：除 GLM-5 Megatron 外，其他当前 launcher 会传递该参数。GLM-5 使用固定的
+  MLA/FlashMLA 配置，并将 `sglang.attention_backend` 设置为 `null`。
+
+如果某个变量不在对应 launcher 的配置数组中，导出该变量不会产生效果。需要修改不支持的 SGLang 参数时，应先检查对应的
+`run_<model>_<backend>_sglang.sh`。
 
 例如临时覆盖一个模型的训练步数和模型路径，可以直接：
 
@@ -179,6 +195,7 @@ ______________________________________________________________________
 | `qwen2_5_0_5b`          | 支持   | 支持     | Dense                         |
 | `qwen3_1_7b`            | 支持   | 支持     | Dense                         |
 | `qwen3_8b`              | 支持   | 支持     | Dense，推荐作为 FSDP 验证模型 |
+| `qwen3_vl_4b`           | 支持   | 不提供   | 多模态 Geometry3K             |
 | `qwen3_30b_a3b_4layers` | 不提供 | 支持     | MoE，使用 Megatron            |
 | `glm5_4layers`          | 不提供 | 支持     | MoE/MLA/DSA，使用 Megatron    |
 
@@ -326,7 +343,7 @@ bash run.sh \
 
 ______________________________________________________________________
 
-# 10. 单节点训练完整示例：Qwen3-8B FSDP
+# 8. 单节点训练完整示例：Qwen3-8B FSDP
 
 下面用 Qwen3-8B 演示一次完整的单节点训练流程。假设当前节点有 8 张 HCU，模型目录为 `<QWEN3_8B_MODEL_PATH>`，AReaL 示例目录为
 `<AREAL_HOME>/hcu_example/grpo`。
@@ -380,7 +397,7 @@ bash run.sh --check-fsdp
 
 ______________________________________________________________________
 
-# 11. 单节点训练：切换到 Megatron
+# 9. 单节点训练：切换到 Megatron
 
 同一个 Dense 模型如果同时提供 Megatron launcher，只需更换 backend：
 
@@ -397,7 +414,7 @@ Megatron 的 Actor 并行、micro-batch、optimizer 和权重更新配置仍然�
 
 ______________________________________________________________________
 
-# 12. 多节点训练完整示例：Qwen3-30B-A3B Megatron
+# 10. 多节点训练完整示例：Qwen3-30B-A3B Megatron
 
 Qwen3-30B-A3B 当前只保留 Megatron + SGLang。下面假设训练需要两个 8 卡节点，其中一台作为 Ray head，另一台作为 worker。实际
 IP 使用 `<HEAD_IP>` 和 `<WORKER_IP>` 代替，Ray 端口使用 `<RAY_PORT>`。
@@ -405,7 +422,7 @@ IP 使用 `<HEAD_IP>` 和 `<WORKER_IP>` 代替，Ray 端口使用 `<RAY_PORT>`�
 多节点开始之前，两个节点都必须确认以下内容一致：Python venv、AReaL 路径、Megatron 路径、SGLang 路径、模型路径和共享运行目录。尤其不要在
 head 使用一个模型路径、worker 使用另一个路径。
 
-## 12.1 Head 节点启动 Ray
+## 10.1 Head 节点启动 Ray
 
 在 head 节点执行：
 
@@ -422,7 +439,7 @@ bash run.sh \
 
 `--ray-head` 只负责当前物理节点的 Ray 生命周期管理，执行完成后退出，不会启动训练。如果模型默认配置为多节点，命令结束时会提示 worker 的加入方式。
 
-## 12.2 Worker 节点加入集群
+## 10.2 Worker 节点加入集群
 
 在 worker 节点执行：
 
@@ -444,7 +461,7 @@ address。
 如果需要第三个或更多 worker，在每个新增物理节点上重复 `--ray-worker` 操作即可。`run.sh` 不会通过 SSH 自动操作另一台服务器，所以
 head、worker 命令必须分别在对应节点执行。
 
-## 12.3 检查 Ray 集群
+## 10.3 检查 Ray 集群
 
 所有 worker 加入后，在 head 上执行：
 
@@ -465,7 +482,7 @@ model-aware `--ray-status` 会根据 launcher 的 `N_NODES` 和 `N_GPUS_PER_NODE
 ray status --address=<HEAD_IP>:<RAY_PORT>
 ```
 
-## 12.4 只在 Head 启动一次训练
+## 10.4 只在 Head 启动一次训练
 
 Ray 集群建立完成后，只在 head 节点启动一份 training driver：
 
@@ -494,7 +511,7 @@ Head:   正式训练
 
 ______________________________________________________________________
 
-# 13. 不带模型时管理 Ray
+# 11. 不带模型时管理 Ray
 
 `run.sh` 的 Ray-only 模式可以通过 `--profile` 在没有 `--model` 时运行。该功能适合先建立通用 Ray 集群，再决定具体训练模型。
 
@@ -532,7 +549,7 @@ profile 和资源默认值。
 
 ______________________________________________________________________
 
-# 14. Ray 端口与网络要求
+# 12. Ray 端口与网络要求
 
 默认 Ray head/GCS port 为 6379，但文档和脚本建议统一使用 `<RAY_PORT>` 表示实际配置。公共环境还定义了 worker、object
 manager 和 node manager 的固定端口范围。
@@ -550,7 +567,7 @@ manager 和 node manager 的固定端口范围。
 
 ______________________________________________________________________
 
-# 15. 模型脚本中的 Actor / Rollout backend
+# 13. 模型脚本中的 Actor / Rollout backend
 
 常见 Dense FSDP 配置：
 
@@ -578,7 +595,7 @@ world size 和总 GPU budget。
 
 ______________________________________________________________________
 
-# 16. 日志在哪里
+# 14. 日志在哪里
 
 默认训练日志位于：
 
@@ -600,7 +617,7 @@ Python 和源码路径，排查多节点环境不一致时非常重要。
 
 ______________________________________________________________________
 
-# 17. 环境检查
+# 15. 环境检查
 
 在正式训练前，可以直接运行：
 
@@ -633,14 +650,14 @@ PY
 
 ______________________________________________________________________
 
-# 18. 常见问题
+# 16. 常见问题
 
-## 18.1 `ModuleNotFoundError: No module named 'areal'`
+## 16.1 `ModuleNotFoundError: No module named 'areal'`
 
 先检查 `PYTHON_BIN` 和 `PYTHONPATH` 是否来自当前 HCU 环境。Ray worker 使用的是 Ray daemon 启动时继承的环境，因此即使当前
 shell 已经能 `import areal`，旧 Ray worker 仍可能继续使用错误路径。修改环境后停止并重新启动 Ray。
 
-## 18.2 Ray 只能看到一个节点
+## 16.2 Ray 只能看到一个节点
 
 确认 worker 使用 `<HEAD_IP>:<RAY_PORT>` 加入了正确的 head，并检查容器网络、防火墙、Ray 端口以及节点 IP。之后使用：
 
@@ -654,7 +671,7 @@ bash run.sh \
 
 核对 alive node 和 GPU 总数。
 
-## 18.3 Ray GPU 数量不正确
+## 16.3 Ray GPU 数量不正确
 
 启动 Ray 前检查：
 
@@ -667,7 +684,7 @@ echo "${ROCR_VISIBLE_DEVICES:-}"
 Ray 管理设备分配时，公共环境通常会清除外部遗留的设备 mask，然后由 `ray start --num-gpus=<N>` 注册资源。不要让旧的可见性变量把 8
 卡节点限制成更少设备。
 
-## 18.4 `Failed to connect to GCS`
+## 16.4 `Failed to connect to GCS`
 
 这通常表示 `<HEAD_IP>:<RAY_PORT>` 上没有可用 Ray head、head 已退出或网络不可达。先执行：
 
@@ -677,7 +694,7 @@ ray status --address=<HEAD_IP>:<RAY_PORT>
 
 确认 Ray 本身正常，再启动 AReaL。
 
-## 18.5 SGLang `ConnectionRefusedError`
+## 16.5 SGLang `ConnectionRefusedError`
 
 `Cannot connect to host <IP>:<PORT>` 通常只是 SGLang server 已退出后的后续错误，不应只根据最后一条
 ConnectionRefused 定位。应向前搜索：
@@ -692,7 +709,7 @@ Scheduler crashed
 
 找到第一个真正导致 scheduler/model worker 退出的异常。
 
-## 18.6 FSDP batch 不满足 DP
+## 16.6 FSDP batch 不满足 DP
 
 如果 Dense FSDP Actor 使用：
 

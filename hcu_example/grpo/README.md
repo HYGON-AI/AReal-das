@@ -10,15 +10,17 @@
 
 ## 当前模型
 
-| `--model` 名称                          | Actor            | Rollout              | 默认资源             | profile | 状态            |
-| --------------------------------------- | ---------------- | -------------------- | -------------------- | ------- | --------------- |
-| `qwen2_5_0_5b_megatron_sglang`          | Megatron TP2     | SGLang TP2           | 1×8 HCU（实际使用4） | qwen    | 新增/待实机验证 |
-| `qwen3_1_7b_megatron_sglang`            | Megatron TP4     | SGLang TP4           | 1×8 HCU              | qwen    | 已迁移          |
-| `qwen3_8b_megatron_sglang`              | Megatron TP4     | SGLang TP4           | 1×8 HCU              | qwen    | 已运行          |
-| `qwen3_vl_4b_fsdp_sglang`               | FSDP DP4         | SGLang TP4（多模态） | 1×8 HCU              | qwen    | Geometry3K 示例 |
-| `qwen3_30b_a3b_4layers_megatron_sglang` | Megatron TP8     | SGLang TP8           | 2×8 HCU              | qwen    | 已运行基线      |
-| `qwen3_5_2b_megatron_sglang`            | custom Megatron  | SGLang               | 1×8 HCU              | qwen35  | WIP             |
-| `glm5_4layers_megatron_sglang`          | Megatron TP8/EP8 | SGLang TP8           | 2×8 HCU              | glm5    | custom          |
+| 模型 key                | Backend  | Actor            | Rollout              | 默认资源             | profile | 状态            |
+| ----------------------- | -------- | ---------------- | -------------------- | -------------------- | ------- | --------------- |
+| `qwen2_5_0_5b`          | FSDP2    | FSDP DP2         | SGLang TP2           | 1×8 HCU（实际使用4） | qwen    | 新增/待实机验证 |
+| `qwen2_5_0_5b`          | Megatron | Megatron TP2     | SGLang TP2           | 1×8 HCU（实际使用4） | qwen    | 新增/待实机验证 |
+| `qwen3_1_7b`            | FSDP2    | FSDP DP4         | SGLang TP4           | 1×8 HCU              | qwen    | 已迁移          |
+| `qwen3_1_7b`            | Megatron | Megatron TP4     | SGLang TP4           | 1×8 HCU              | qwen    | 已迁移          |
+| `qwen3_8b`              | FSDP2    | FSDP DP4         | SGLang TP4           | 1×8 HCU              | qwen    | 已运行          |
+| `qwen3_8b`              | Megatron | Megatron TP4     | SGLang TP4           | 1×8 HCU              | qwen    | 已运行          |
+| `qwen3_vl_4b`           | FSDP2    | FSDP DP4         | SGLang TP4（多模态） | 1×8 HCU              | qwen    | Geometry3K 示例 |
+| `qwen3_30b_a3b_4layers` | Megatron | Megatron TP8     | SGLang TP8           | 2×8 HCU              | qwen    | 已运行基线      |
+| `glm5_4layers`          | Megatron | Megatron TP8/EP8 | SGLang TP8           | 2×8 HCU              | glm5    | custom          |
 
 查看：
 
@@ -49,14 +51,16 @@ TRAINER_CONFIG
 
 ## 新增模型必须做的事情
 
-1. 创建 `run_<model>_<train_backend>_<rollout_backend>.sh`。
+1. 创建 `run_<model>_<backend>_sglang.sh`，其中 `<backend>` 为 `fsdp` 或 `megatron`。
 1. 对照 AReaL v1.0.4 `cli_args.py` 和对应官方 YAML，确认每个 Hydra key 存在。
 1. 选择正确的 `AREAL_ENV_PROFILE`。
 1. 设计合理的 Actor/Rollout TP/DP/PP/EP，而不是机械复制其他模型。
-1. 在 `run.sh` 的 `SUPPORTED_MODELS` 中注册名字。
-1. 在 `run.sh` 的 `case` 中注册 `MODEL_SCRIPT / PROFILE`。
+1. 不要修改 `run.sh` 注册模型；`run.sh` 会根据 launcher 文件名自动发现模型和 backend。
 1. 更新本 README 的模型表。
-1. 执行 `bash -n` 和 `bash run.sh --list`。
+1. 执行 `bash -n run_<model>_<backend>_sglang.sh`，并使用
+   `bash run.sh --list`、`bash run.sh --model=<model> --backends` 和
+   `bash run.sh --model=<model> --backend=<backend> --info` 检查发现结果。
+1. 对 FSDP launcher 额外执行 `bash run.sh --check-fsdp`。
 1. 首次只做 10~20 step smoke test。
 1. 如果环境/profile/source 路径变化，重启 Ray 后再测试。
 
