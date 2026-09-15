@@ -141,8 +141,8 @@ grpo_prepare_run() {
   echo "===== Python / source environment ====="
   areal_print_python_env
   grpo_validate_ray_cluster "${expected_nodes}" "${expected_gpus}"
-  areal_save_env_snapshot "${LOG_DIR}/runtime_env.txt"
-  areal_validate_ray_worker_env | tee -a "${LOG_DIR}/runtime_env.txt"
+  areal_save_env_snapshot "${LOG_DIR}/runtime_env.txt" >/dev/null
+  areal_validate_ray_worker_env | tee "${LOG_DIR}/ray_worker_env.txt"
 }
 
 grpo_print_summary() {

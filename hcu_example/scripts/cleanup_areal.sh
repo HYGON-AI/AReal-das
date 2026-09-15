@@ -18,6 +18,7 @@ pkill -TERM -f 'python(3)? -m areal\.infra\.rpc\.(guard|rpc_server)' || true
 pkill -TERM -f 'RayRPCServer' || true
 pkill -TERM -f 'python(3)? -m sglang\.launch_server' || true
 pkill -TERM -f 'python(3)? .*gsm8k_rl\.py' || true
+pkill -TERM -f 'python(3)? .*geometry3k_grpo\.py' || true
 
 if [[ "${CLEAN_NAME_RESOLVE}" == "1" ]]; then
   rm -rf "${NAME_RESOLVE_ROOT}"
