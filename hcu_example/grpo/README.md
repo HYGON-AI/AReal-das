@@ -6,87 +6,155 @@
 - Ray head/worker 生命周期：`../scripts/`
 - GRPO 公共启动流程：`common.sh`
 - 模型统一入口：`run.sh`
-- 模型特有配置：`run_<model>_<train_backend>_<rollout_backend>.sh`
+- 模型特有配置：`run_<family>_<variant>_<actor_backend>_<rollout_backend>.sh`
+
+## Launcher 命名
+
+当前 launcher 不把参数量写入文件名。文件名表达模型架构、Actor backend 和 Rollout backend：
+
+```text
+run_qwen2_5_dense_fsdp_sglang.sh
+run_qwen2_5_dense_megatron_sglang.sh
+run_qwen3_dense_fsdp_sglang.sh
+run_qwen3_dense_megatron_sglang.sh
+run_qwen3_vl_fsdp_sglang.sh
+run_qwen3_moe_megatron_sglang.sh
+run_qwen3_5_dense_fsdp_sglang.sh
+run_glm5_moe_megatron_sglang.sh
+run_gemma3_vl_fsdp_sglang.sh
+run_deepseekr1_moe_megatron_sglang.sh
+```
+
+字段含义：
+
+```text
+family         = qwen2_5 / qwen3 / qwen3_5 / glm5 / gemma3 / deepseek
+variant        = dense / moe / vl / vl_moe
+actor backend  = fsdp / megatron
+rollout        = sglang / vllm
+```
+
+`_sglang` 必须保留。未来增加 vLLM 时，使用同一命名槽位，例如：
+
+```text
+run_qwen3_dense_fsdp_vllm.sh
+run_qwen3_vl_fsdp_vllm.sh
+```
+
+每个 launcher 顶部包含 `HCU_LAUNCHER_*` 元数据，`run.sh` 查询时只读取这些赋值，不会 source launcher，也不会触发 HCU
+环境。新增 launcher 不需要修改中央注册文件。
 
 ## 当前模型
 
-| `--model` 名称                          | Actor            | Rollout              | 默认资源             | profile | 状态            |
-| --------------------------------------- | ---------------- | -------------------- | -------------------- | ------- | --------------- |
-| `qwen2_5_0_5b_megatron_sglang`          | Megatron TP2     | SGLang TP2           | 1×8 HCU（实际使用4） | qwen    | 新增/待实机验证 |
-| `qwen3_1_7b_megatron_sglang`            | Megatron TP4     | SGLang TP4           | 1×8 HCU              | qwen    | 已迁移          |
-| `qwen3_8b_megatron_sglang`              | Megatron TP4     | SGLang TP4           | 1×8 HCU              | qwen    | 已运行          |
-| `qwen3_vl_4b_fsdp_sglang`               | FSDP DP4         | SGLang TP4（多模态） | 1×8 HCU              | qwen    | Geometry3K 示例 |
-| `qwen3_30b_a3b_4layers_megatron_sglang` | Megatron TP8     | SGLang TP8           | 2×8 HCU              | qwen    | 已运行基线      |
-| `qwen3_5_2b_megatron_sglang`            | custom Megatron  | SGLang               | 1×8 HCU              | qwen35  | WIP             |
-| `glm5_4layers_megatron_sglang`          | Megatron TP8/EP8 | SGLang TP8           | 2×8 HCU              | glm5    | custom          |
+| Family     | Variant | Actor                       | Rollout    | 默认资源 | env profile | 备注                               |
+| ---------- | ------- | --------------------------- | ---------- | -------- | ----------- | ---------------------------------- |
+| `qwen2_5`  | dense   | FSDP DP2 / Megatron TP2     | SGLang TP2 | 1×8 HCU  | qwen        | 文本 Dense                         |
+| `qwen3`    | dense   | FSDP DP4 / Megatron TP4     | SGLang TP4 | 1×8 HCU  | qwen        | Qwen3 Dense，不按参数量拆 launcher |
+| `qwen3`    | vl      | FSDP DP4                    | SGLang TP4 | 1×8 HCU  | qwen        | Geometry3K 多模态                  |
+| `qwen3`    | moe     | Megatron TP/PP/EP           | SGLang TP8 | 2×8 HCU  | qwen        | MoE，独立拓扑                      |
+| `qwen3_5`  | dense   | FSDP DP4                    | SGLang TP4 | 1×8 HCU  | qwen35      | Qwen3.5 Dense，fa3 + fp8 KV cache  |
+| `glm5`     | moe     | Megatron TP/EP              | SGLang TP8 | 2×8 HCU  | glm5        | MLA/DSA/custom                     |
+| `gemma3`   | vl      | FSDP DP4                    | SGLang TP4 | 1×8 HCU  | gemma3      | 多模态，无 speculative/MTP 路径    |
+| `deepseek` | moe     | Megatron attn TP4 / ffn EP4 | SGLang TP4 | 1×8 HCU  | deepseek    | DeepSeek-R1，FP8 GEMM 用 triton    |
 
-查看：
+同一个 Qwen3 Dense launcher 可以接收 Qwen3-1.7B 或 Qwen3-8B；具体权重由 `--model-path` 指定。`run.sh`
+不读取模型目录，权重与 launcher 是否匹配在训练加载阶段暴露。
+
+## 统一入口
+
+列出所有 launcher：
 
 ```bash
 bash run.sh --list
 ```
 
-运行：
+按 family、variant、Actor backend、Rollout backend 或旧 key 搜索：
+
+```bash
+bash run.sh --search=qwen3
+```
+
+Qwen3 Dense + FSDP + SGLang：
 
 ```bash
 bash run.sh \
-  --model=qwen3_8b \
+  --model=qwen3 \
   --variant=dense \
+  --backend=fsdp \
+  --rollout=sglang \
+  --model-path=/model/qwen3/Qwen3-8B \
+  --dry-run
+```
+
+Qwen3-1.7B 使用同一个 launcher，只替换 `--model-path`。不需要把 `1_7b` 或 `8b` 写进 launcher 文件名。
+
+Qwen3 MoE：
+
+```bash
+bash run.sh \
+  --model=qwen3 \
+  --variant=moe \
   --backend=megatron \
   --rollout=sglang \
-  --model-path=<path-to-model> \
-  --ray-address=<head-node-ip>:6379
+  --model-path=/model/qwen3/Qwen3-MoE \
+  --dry-run
 ```
 
-`--variant` 校验所选模型架构，`--backend` 选择 Actor 后端，`--rollout` 选择 Rollout 后端。当前 Rollout 后端为
-`sglang`；历史的 `--model=<model>_<backend>_sglang` 写法仍然兼容。
+如果 family/variant/backend/rollout 不能唯一确定 launcher，`run.sh` 会报错并列出候选，不会静默选择错误的 Actor 或
+Rollout backend。
 
-## 参数职责
+Dense、MoE 和 VL 由 `--variant` 显式指定，`run.sh` 不做任何推断。选择只依据命令行参数和 launcher 顶部的
+`HCU_LAUNCHER_*` 元数据；`--model-path` 仅透传给 launcher，不参与选择。
 
-所有模型脚本保持：
+## 旧命令兼容
+
+旧的 `run.sh` 模型 key 仍然可以使用：
+
+```bash
+bash run.sh --model=qwen3_8b --backend=fsdp --rollout=sglang --info
+bash run.sh --model=qwen3_8b_fsdp_sglang --dry-run
+```
+
+这些 legacy key 会统一解析到新的无参数量 launcher：
 
 ```text
-CLUSTER_CONFIG
-DATA_CONFIG
-ACTOR_CONFIG
-ROLLOUT_CONFIG
-SGLANG_CONFIG
-TRAINER_CONFIG
+qwen2_5_0_5b           -> qwen2_5_dense_fsdp_sglang / megatron_sglang
+qwen3_1_7b             -> qwen3_dense_fsdp_sglang / megatron_sglang
+qwen3_8b               -> qwen3_dense_fsdp_sglang / megatron_sglang
+qwen3_vl_4b            -> qwen3_vl_fsdp_sglang
+qwen3_30b_a3b_4layers  -> qwen3_moe_megatron_sglang
+glm5_4layers           -> glm5_moe_megatron_sglang
 ```
 
-不要把模型特有的 TP/EP/recompute/SGLang backend 参数下沉到 `common.sh`。
+`--profile` 仍然表示 Ray/AReaL 运行环境
+profile（`qwen`、`qwen35`、`glm5`、`gemma3`、`deepseek`、`base`），不是模型规模。参数量只属于 `--model-path`
+指向的模型目录，不属于 launcher identity。
 
 ## 新增模型必须做的事情
 
-1. 创建 `run_<model>_<train_backend>_<rollout_backend>.sh`。
+1. 创建 `run_<family>_<variant>_<actor_backend>_<rollout_backend>.sh`。
+1. 在 launcher 顶部填写
+   `HCU_LAUNCHER_FAMILY`、`HCU_LAUNCHER_VARIANT`、`HCU_LAUNCHER_ACTOR_BACKEND`、`HCU_LAUNCHER_ROLLOUT_BACKEND`
+   和 `HCU_LAUNCHER_PROFILE`。
+1. 不要把参数量、层数或具体 checkpoint 名称写入 launcher 文件名；如果拓扑确实不同，应增加有意义的 variant，而不是增加 `8b`、`30b`
+   等字段。
 1. 对照 AReaL v1.0.4 `cli_args.py` 和对应官方 YAML，确认每个 Hydra key 存在。
-1. 选择正确的 `AREAL_ENV_PROFILE`。
-1. 设计合理的 Actor/Rollout TP/DP/PP/EP，而不是机械复制其他模型。
-1. 在 `run.sh` 的 `SUPPORTED_MODELS` 中注册名字。
-1. 在 `run.sh` 的 `case` 中注册 `MODEL_SCRIPT / PROFILE`。
-1. 更新本 README 的模型表。
-1. 执行 `bash -n` 和 `bash run.sh --list`。
-1. 首次只做 10~20 step smoke test。
-1. 如果环境/profile/source 路径变化，重启 Ray 后再测试。
+1. 设计正确的 Actor/Rollout TP/DP/PP/EP，保留模型特有的 SGLang/VLLM 参数在对应 launcher 内。
+1. 不修改 `run.sh` 注册模型；`run.sh` 会扫描 rollout-aware launcher 文件自动发现。
+1. 执行 `bash -n`、`bash run.sh --list`、`--info`、`--backends` 和 `--check-fsdp`。
+1. 首次只做 10~20 step smoke test；如果环境/profile/source 路径变化，重启 Ray 后再测试。
 
-详细步骤见上一级 `README.md`。
-
-### 单节点自动重建 Ray
-
-单节点调试时可使用：
-
-```bash
-bash run.sh --model=qwen3_1_7b_megatron_sglang --restart-ray
-```
-
-或显式指定本机 head 地址：
+## 单节点自动重建 Ray
 
 ```bash
 bash run.sh \
-  --model=qwen3_1_7b_megatron_sglang \
-  --ray-address=<head-node-ip>:6379 \
+  --model=qwen3 \
+  --variant=dense \
+  --backend=fsdp \
+  --rollout=sglang \
+  --model-path=/model/qwen3/Qwen3-8B \
   --restart-ray
 ```
 
-该参数会在训练前停止当前节点旧 Ray、按模型 profile 创建新 head 并验证 worker 环境。仅支持 `N_NODES=1`；多节点请继续手动管理所有节点的
-Ray。
+`--restart-ray` 只支持 `N_NODES=1`，会在训练前重建当前节点 Ray。多节点必须分别执行
+`--ray-head`、`--ray-worker`，最后只在 head 节点启动训练。`--dry-run` 不会启动或重启 Ray。

@@ -3,12 +3,27 @@
 # SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
 
+# Launcher metadata consumed by grpo/run.sh without sourcing this file.
+HCU_LAUNCHER_FAMILY=deepseek
+HCU_LAUNCHER_VARIANT=moe
+HCU_LAUNCHER_ACTOR_BACKEND=megatron
+HCU_LAUNCHER_ROLLOUT_BACKEND=sglang
+HCU_LAUNCHER_PROFILE=deepseek
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-export AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE:-glm5}"
+export AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE:-deepseek}"
 
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
+
+# ==============================================================================
+# AITER: explicitly disabled for DeepSeek on the HCU path.
+# These default to ON on HIP, so we force them off here (redundant with the
+# deepseek profile in common_env.sh, kept here as a safety net).
+# ==============================================================================
+export SGLANG_USE_AITER="${SGLANG_USE_AITER:-0}"
+export SGLANG_USE_AITER_AR="${SGLANG_USE_AITER_AR:-0}"
+export SGLANG_ROCM_USE_AITER_MOE="${SGLANG_ROCM_USE_AITER_MOE:-0}"
 
 # ==============================================================================
 # Model / dataset
@@ -20,13 +35,16 @@ DATASET_PATH="${DATASET_PATH:-openai/gsm8k}"
 # ==============================================================================
 # Cluster
 # ==============================================================================
-N_NODES="${N_NODES:-2}"
+# Actor (attn TP4 | ffn EP4) uses 4 HCUs and SGLang rollout uses 4, so the
+# default single-node budget of 8 HCUs is sufficient. Set N_NODES=2 only when
+# scaling the parallel layout beyond one node.
+N_NODES="${N_NODES:-1}"
 N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-8}"
 
-# Actor: attention d1/p2/t4, FFN d1/p2/t1/e4
-# Rollout: SGLang d1/p1/t8
-ACTOR_BACKEND="${ACTOR_BACKEND:-megatron:(attn:d1p2t4|ffn:d1p2t1e4)}"
-ROLLOUT_BACKEND="${ROLLOUT_BACKEND:-sglang:d1p1t8}"
+# Actor: attention d1/p1/t4, FFN d1/p1/t1/e4 (DeepSeek MoE)
+# Rollout: SGLang d1/p1/t4, HCU MLA attention backend
+ACTOR_BACKEND="${ACTOR_BACKEND:-megatron:(attn:d1p1t4|ffn:d1p1t1e4)}"
+ROLLOUT_BACKEND="${ROLLOUT_BACKEND:-sglang:d1p1t4}"
 
 BRIDGE_TYPE="${BRIDGE_TYPE:-megatron-bridge}"
 USE_MBRIDGE_SAVE="${USE_MBRIDGE_SAVE:-false}"
@@ -35,10 +53,10 @@ WEIGHT_UPDATE_MODE="${WEIGHT_UPDATE_MODE:-xccl}"
 # ==============================================================================
 # Experiment
 # ==============================================================================
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-glm5-4layer-hcu-2nodes-megatron}"
-TRIAL_NAME="${TRIAL_NAME:-tp8-ep8-smoke}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-deepseek-r1-4layer-megatron-sglang}"
+TRIAL_NAME="${TRIAL_NAME:-tp8-hcu-mla-moe-smoke}"
 TIMESTAMP="${TIMESTAMP:-$(date '+%Y%m%d-%H%M%S')}"
-LOG_DIR="${LOG_DIR:-${AREAL_RUNS_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
+LOG_DIR="${LOG_DIR:-${LOG_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
 LOG_FILE="${LOG_FILE:-${LOG_DIR}/train.log}"
 
 # ==============================================================================
@@ -46,13 +64,7 @@ LOG_FILE="${LOG_FILE:-${LOG_DIR}/train.log}"
 # ==============================================================================
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-1}"
 VALID_BATCH_SIZE="${VALID_BATCH_SIZE:-1}"
-
-# IMPORTANT:
-# Actor uses PP=2. In Megatron forward/compute_logp, AReaL enforces at least
-# 2 * PP = 4 micro-batches. With train_batch_size=1, use n_samples=4 so one
-# prompt yields four rollout trajectories and the allocator has >=4 sequences.
-N_SAMPLES="${N_SAMPLES:-4}"
-
+N_SAMPLES="${N_SAMPLES:-1}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-1024}"
 TOTAL_TRAIN_EPOCHS="${TOTAL_TRAIN_EPOCHS:-1}"
 TOTAL_TRAIN_STEPS="${TOTAL_TRAIN_STEPS:-10}"
@@ -60,27 +72,21 @@ TOTAL_TRAIN_STEPS="${TOTAL_TRAIN_STEPS:-10}"
 # ==============================================================================
 # Actor micro-batching
 # ==============================================================================
-ACTOR_N_MBS="${ACTOR_N_MBS:-4}"
-
-# IMPORTANT:
-# This is the TOTAL token capacity of one Actor micro-batch before CP splitting.
-# It must be >= every individual prompt+response trajectory length.
-# The previous value 128 caused:
-#   RuntimeError: Values [1088] is larger than capacity 128
-# Keep it aligned with SGLang context length for a safe upper bound.
-ACTOR_MB_TOKENS="${ACTOR_MB_TOKENS:-2048}"
-
+ACTOR_N_MBS="${ACTOR_N_MBS:-1}"
+ACTOR_MB_TOKENS="${ACTOR_MB_TOKENS:-4096}"
 ACTOR_LR="${ACTOR_LR:-1.0e-6}"
-
+ACTOR_TORCH_COMPILE_DISABLE="${ACTOR_TORCH_COMPILE_DISABLE:-1}"
 # ==============================================================================
 # SGLang
 # ==============================================================================
-SGLANG_MEM_FRACTION_STATIC="${SGLANG_MEM_FRACTION_STATIC:-0.45}"
-SGLANG_CONTEXT_LENGTH="${SGLANG_CONTEXT_LENGTH:-2048}"
-SGLANG_CHUNKED_PREFILL_SIZE="${SGLANG_CHUNKED_PREFILL_SIZE:-1024}"
+SGLANG_MEM_FRACTION_STATIC="${SGLANG_MEM_FRACTION_STATIC:-0.85}"
+SGLANG_CONTEXT_LENGTH="${SGLANG_CONTEXT_LENGTH:-6000}"
+SGLANG_CHUNKED_PREFILL_SIZE="${SGLANG_CHUNKED_PREFILL_SIZE:--1}"
 SGLANG_PAGE_SIZE="${SGLANG_PAGE_SIZE:-64}"
 SGLANG_KV_CACHE_DTYPE="${SGLANG_KV_CACHE_DTYPE:-fp8_e4m3}"
-SGLANG_MAX_RUNNING_REQUESTS="${SGLANG_MAX_RUNNING_REQUESTS:-1}"
+SGLANG_MAX_RUNNING_REQUESTS="${SGLANG_MAX_RUNNING_REQUESTS:-256}"
+SGLANG_ATTENTION_BACKEND="${SGLANG_ATTENTION_BACKEND:-hcu_mla}"
+SGLANG_FP8_GEMM_BACKEND="${SGLANG_FP8_GEMM_BACKEND:-triton}"
 
 # ==============================================================================
 # Preflight checks
@@ -89,8 +95,6 @@ infer_actor_parallel_size() {
   local backend="$1"
   local kind="$2"
 
-  # Prefer the attention branch for heterogeneous Megatron backends, e.g.:
-  # megatron:(attn:d1p2t4|ffn:d1p2t1e4)
   if [[ "${backend}" =~ attn:d([0-9]+)p([0-9]+)t([0-9]+) ]]; then
     case "${kind}" in
       dp) printf '%s\n' "${BASH_REMATCH[1]}" ;;
@@ -101,7 +105,6 @@ infer_actor_parallel_size() {
     return 0
   fi
 
-  # Plain Megatron backend, e.g. megatron:d1p2t4
   if [[ "${backend}" =~ megatron:d([0-9]+)p([0-9]+)t([0-9]+) ]]; then
     case "${kind}" in
       dp) printf '%s\n' "${BASH_REMATCH[1]}" ;;
@@ -215,6 +218,7 @@ ACTOR_CONFIG=(
   "actor.kl_ctl=0.0"
   "++actor.mb_spec.n_mbs=${ACTOR_N_MBS}"
   "++actor.mb_spec.max_tokens_per_mb=${ACTOR_MB_TOKENS}"
+  "++actor.scheduling_spec.0.env_vars.TORCH_COMPILE_DISABLE=${ACTOR_TORCH_COMPILE_DISABLE}"
 )
 
 ROLLOUT_CONFIG=(
@@ -236,15 +240,15 @@ SGLANG_CONFIG=(
   "sglang.context_length=${SGLANG_CONTEXT_LENGTH}"
   "sglang.max_running_requests=${SGLANG_MAX_RUNNING_REQUESTS}"
   "++sglang.kv_cache_dtype=${SGLANG_KV_CACHE_DTYPE}"
-  "+sglang.nsa_prefill_backend=flashmla_auto"
-  "+sglang.nsa_decode_backend=flashmla_kv"
   "++sglang.chunked_prefill_size=${SGLANG_CHUNKED_PREFILL_SIZE}"
   "++sglang.page_size=${SGLANG_PAGE_SIZE}"
   "++sglang.disable_radix_cache=true"
   "++sglang.disable_cuda_graph=true"
   "++sglang.disable_cuda_graph_padding=true"
   "++sglang.disable_overlap_schedule=true"
-  "++sglang.attention_backend=null"
+  "++sglang.attention_backend=${SGLANG_ATTENTION_BACKEND}"
+  "+sglang.fp8_gemm_backend=${SGLANG_FP8_GEMM_BACKEND}"
+  "+sglang.disable_custom_all_reduce=${SGLANG_DISABLE_CUSTOM_ALL_REDUCE:-True}"
 )
 
 TRAINER_CONFIG=(
@@ -263,7 +267,7 @@ sysctl -w kernel.numa_balancing=0 >/dev/null 2>&1 || true
 # Launch
 # ==============================================================================
 echo "========================================================================"
-echo "GLM-5 GRPO launch configuration"
+echo "DeepSeek-R1 GRPO launch configuration"
 echo "  Actor backend          : ${ACTOR_BACKEND}"
 echo "  Actor DP / PP / TP     : ${ACTOR_DP_SIZE} / ${ACTOR_PP_SIZE} / ${ACTOR_TP_SIZE}"
 echo "  Train batch size       : ${TRAIN_BATCH_SIZE}"
@@ -273,6 +277,10 @@ echo "  Actor n_mbs            : ${ACTOR_N_MBS}"
 echo "  Actor MB tokens        : ${ACTOR_MB_TOKENS}"
 echo "  Max new tokens         : ${MAX_NEW_TOKENS}"
 echo "  SGLang context length  : ${SGLANG_CONTEXT_LENGTH}"
+echo "  SGLang attention       : ${SGLANG_ATTENTION_BACKEND}"
+echo "  SGLang FP8 GEMM       : ${SGLANG_FP8_GEMM_BACKEND}"
+echo "  SGLang KV cache dtype  : ${SGLANG_KV_CACHE_DTYPE}"
+echo "  AITER (AR/MoE)         : ${SGLANG_USE_AITER_AR} / ${SGLANG_ROCM_USE_AITER_MOE} (0 = off)"
 echo "  Weight update mode     : ${WEIGHT_UPDATE_MODE}"
 echo "========================================================================"
 

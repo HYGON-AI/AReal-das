@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# Choose one of: base, qwen, qwen35, glm5.
+# Choose one of: base, qwen, qwen35, glm5, deepseek.
 export AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE:-qwen}"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../common/common_env.sh"

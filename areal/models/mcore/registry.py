@@ -199,6 +199,16 @@ def make_mcore_model(
 
     if bridge is not None and bridge_type == "megatron-bridge":
         provider = bridge.to_megatron_provider(load_weights=False)
+
+        # HCU fallback: fused_weight_gradient_mlp_cuda may not be installed.
+        try:
+            import fused_weight_gradient_mlp_cuda  # noqa: F401
+        except ImportError:
+            provider.gradient_accumulation_fusion = False
+            logger.warning(
+                "fused_weight_gradient_mlp_cuda is unavailable; "
+                "disabling gradient_accumulation_fusion."
+            )
         vpp_size = mcore_config.virtual_pipeline_parallel_size or 0
 
         provider.tensor_model_parallel_size = mpu.get_tensor_model_parallel_world_size()

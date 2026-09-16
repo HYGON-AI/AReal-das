@@ -68,14 +68,14 @@ HCU 示例脚本、环境变量说明、模型与后端支持矩阵、单节点�
 
 ## 支持的 HCU 示例
 
-| 模型                  | Actor 后端       | Rollout 后端     | 启动脚本                                                      |
-| --------------------- | ---------------- | ---------------- | ------------------------------------------------------------- |
-| Qwen3-8B              | FSDP 或 Megatron | SGLang           | hcu_example/grpo/run_qwen3_8b\_\*\_sglang.sh                  |
-| Qwen3-VL-4B           | FSDP             | SGLang（多模态） | hcu_example/grpo/run_qwen3_vl_4b_fsdp_sglang.sh               |
-| Qwen3-30B-A3B（4 层） | Megatron         | SGLang           | hcu_example/grpo/run_qwen3_30b_a3b_4layers_megatron_sglang.sh |
-| Qwen3-1.7B            | FSDP 或 Megatron | SGLang           | hcu_example/grpo/run_qwen3_1_7b\_\*\_sglang.sh                |
-| Qwen2.5-0.5B          | FSDP 或 Megatron | SGLang           | hcu_example/grpo/run_qwen2_5_0_5b\_\*\_sglang.sh              |
-| GLM-5（4 层）         | Megatron         | SGLang           | hcu_example/grpo/run_glm5_4layers_megatron_sglang.sh          |
+| 模型            | Actor 后端       | Rollout 后端     | 启动脚本                                                          |
+| --------------- | ---------------- | ---------------- | ----------------------------------------------------------------- |
+| Qwen3-8B / 1.7B | FSDP 或 Megatron | SGLang           | `--model=qwen3 --variant=dense --backend=fsdp --rollout=sglang`   |
+| Qwen3-VL        | FSDP             | SGLang（多模态） | `--model=qwen3 --variant=vl --backend=fsdp --rollout=sglang`      |
+| Qwen3 MoE       | Megatron         | SGLang           | `--model=qwen3 --variant=moe --backend=megatron --rollout=sglang` |
+| Qwen3.5 Dense   | FSDP             | SGLang           | `--model=qwen3_5 --variant=dense --backend=fsdp --rollout=sglang` |
+| Qwen2.5 Dense   | FSDP 或 Megatron | SGLang           | `--model=qwen2_5 --variant=dense --backend=fsdp --rollout=sglang` |
+| GLM5 MoE        | Megatron         | SGLang           | `--model=glm5 --variant=moe --backend=megatron --rollout=sglang`  |
 
 环境配置和启动细节请参阅 [HCU 示例](hcu_example/grpo/README.md) 与
 [HCU 安装文档](docs/zh/tutorial/installation.md)。
