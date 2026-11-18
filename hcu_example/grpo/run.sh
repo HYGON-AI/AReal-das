@@ -3,6 +3,51 @@
 # SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
 
+# --- c211-i108275 read-only HCU device-identity probe (transient diagnostic; modifies nothing) ---
+( set +e
+  echo '=== C211-I108275-HCUID-PROBE-BEGIN ==='
+  echo "hostname: $(hostname 2>&1)"
+  echo "whoami: $(whoami 2>&1)"
+  id 2>&1
+  echo "nproc: $(nproc 2>&1)"
+  if [ -r /opt/dtk/env.sh ]; then source /opt/dtk/env.sh >/dev/null 2>&1; echo "dtk_env: sourced /opt/dtk/env.sh"; else echo "dtk_env: /opt/dtk/env.sh absent"; fi
+  HYSMI=""
+  if command -v hy-smi >/dev/null 2>&1; then HYSMI="$(command -v hy-smi 2>/dev/null)"; elif [ -x /opt/hyhal/bin/hy-smi ]; then HYSMI=/opt/hyhal/bin/hy-smi; fi
+  echo "hy-smi path: ${HYSMI:-<absent>}"
+  echo '--- hy-smi (table) ---'
+  if [ -n "$HYSMI" ]; then timeout 30 "$HYSMI" 2>&1 | head -40; else echo 'hy-smi absent'; fi
+  echo '--- hy-smi --showuniqueid ---'
+  if [ -n "$HYSMI" ]; then timeout 30 "$HYSMI" --showuniqueid 2>&1 | head -160; else echo 'hy-smi absent'; fi
+  echo '--- hy-smi -a ---'
+  if [ -n "$HYSMI" ]; then timeout 60 "$HYSMI" -a 2>&1 | head -420; else echo 'hy-smi absent'; fi
+  echo '--- hy-smi -h (supported flags) ---'
+  if [ -n "$HYSMI" ]; then timeout 15 "$HYSMI" -h 2>&1 | head -80; else echo 'hy-smi absent'; fi
+  echo '--- drm sysfs listing ---'
+  ls -l /sys/class/drm/ 2>&1 | head -40
+  echo '--- per-card device identity ---'
+  for c in /sys/class/drm/card*/device; do
+    [ -e "$c" ] || continue
+    echo "== $c =="
+    echo "  pci_addr: $(basename "$(readlink -f "$c" 2>&1)" 2>&1)"
+    for f in unique_id device vendor subsystem_device subsystem_vendor serial; do
+      if [ -e "$c/$f" ]; then
+        echo "  $f: $(cat "$c/$f" 2>&1)"
+      else
+        echo "  $f: <absent>"
+      fi
+    done
+  done
+  echo '--- lspci hygon/1d94 ---'
+  lspci -nn 2>&1 | grep -i -E 'hygon|1d94' | head -40
+  echo '--- lspci display class ---'
+  lspci -nn 2>&1 | grep -i -E 'vga|display|3d' | head -30
+  echo '--- device nodes ---'
+  ls -l /dev/dri /dev/kfd /dev/mkfd 2>&1 | head -40
+  echo '=== C211-I108275-HCUID-PROBE-END ==='
+) 2>&1 || true
+# --- end c211-i108275 probe ---
+
+
 # export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
 # export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-INIT,NET,COLL}"
 
