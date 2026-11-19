@@ -1,0 +1,7 @@
+{
+  "qwen3-4b-megatron": {
+    "config": "examples/configs/gsm8k_qwen3_megatron.yaml",
+    "model_path": "qwen3/Qwen3-4B",
+    "gpus": 8
+  }
+}

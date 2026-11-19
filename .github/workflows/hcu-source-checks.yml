@@ -14,16 +14,16 @@ concurrency:
 
 jobs:
   quality:
-    name: Source, format, and shell checks
+    name: Source, Python, and shell checks
     runs-on:
       group: ci-general
       labels: [self-hosted, ci]
     timeout-minutes: 45
     env:
-      CI_IMAGE: ${{ vars.HCU_BASE_IMAGE }}
-      CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE }}
-      CI_PYTHON: /opt/areal-venv-py31115/bin/python
-      CI_PYTHONPATH: /opt/hcu_megatron:/workspace:/opt/hcu_megatron/Megatron-Bridge/src:/opt/hcu_megatron/Megatron-LM:/opt/sglang/python:/usr/local/
+      CI_IMAGE: ${{ vars.HCU_BASE_IMAGE_V2 }}
+      CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE_V2 }}
+      CI_PYTHON: ${{ vars.HCU_CI_PYTHON || 'python' }}
+      CI_PYTHONPATH: /workspace:/workspace/3rdparty/AReaL:/workspace/3rdparty/Megatron-LM-das:/workspace/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:/workspace/3rdparty/Megatron-bridge-das:/workspace/3rdparty/Megatron-bridge-das/hcu_megatron_bridge/src:/workspace/3rdparty/Megatron-bridge-das/3rdparty/Megatron-Bridge/src:/opt/sglang/python:/usr/local/
       HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
 
     steps:
@@ -31,7 +31,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test -n "${CI_IMAGE:-}" || {
-            echo "::error::Repository variable HCU_BASE_IMAGE is not configured."
+            echo "::error::Repository variable HCU_BASE_IMAGE_V2 is not configured."
             exit 2
           }
           if ! docker image inspect "${CI_IMAGE}" >/dev/null 2>&1; then
@@ -44,32 +44,35 @@ jobs:
           fi
           mkdir -p "${GITHUB_WORKSPACE}"
           docker run --rm \
+            --entrypoint /bin/bash \
             -e HOST_UID="$(id -u)" \
             -e HOST_GID="$(id -g)" \
             -v "${GITHUB_WORKSPACE}:/workspace" \
             "${CI_IMAGE}" \
-            bash -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
+            -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
 
       - name: Check out source
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           allow-unsafe-pr-checkout: true
+          submodules: recursive
 
-      - name: Verify Python 3.11 CI image
+      - name: Verify CI image Python
         run: |
           docker image inspect "${CI_IMAGE}" >/dev/null
           docker run --rm \
+            --entrypoint "${CI_PYTHON}" \
             -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
             -e PYTHONPATH="${CI_PYTHONPATH}" \
-            "${CI_IMAGE}" "${CI_PYTHON}" -c \
-            'import sys; print(sys.version); assert sys.version_info[:2] == (3, 11)'
+            "${CI_IMAGE}" -c \
+            'import sys; print(sys.version); assert sys.version_info >= (3, 11)'
 
       - name: Run pre-commit checks
-        # These hooks require a fully installed HCU runtime or regenerate locks;
-        # they are run in the matching HCU development environment instead.
         run: |
           docker run --rm \
+            --entrypoint /bin/bash \
+            -e HCU_CI_PYTHON="${CI_PYTHON}" \
             --security-opt label=disable \
             --user "$(id -u):$(id -g)" \
             -e HOME=/tmp \
@@ -84,12 +87,11 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace" \
             -w /workspace \
             "${CI_IMAGE}" \
-            bash -lc '
+            -c '
               set -euo pipefail
-              export PATH=/opt/areal-venv-py31115/bin:${PATH}
               git config --global --add safe.directory /workspace
               git config --global http.version HTTP/1.1
-              python -m venv /tmp/pre-commit-venv
+              "${HCU_CI_PYTHON}" -m venv /tmp/pre-commit-venv
               /tmp/pre-commit-venv/bin/python -m pip install --index-url https://pypi.org/simple pre-commit
               /tmp/pre-commit-venv/bin/pre-commit run --all-files
             '
@@ -97,6 +99,7 @@ jobs:
       - name: Check Python syntax
         run: |
           docker run --rm \
+            --entrypoint "${CI_PYTHON}" \
             --security-opt label=disable \
             --user "$(id -u):$(id -g)" \
             -e HOME=/tmp \
@@ -108,16 +111,16 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace" \
             -w /workspace \
             "${CI_IMAGE}" \
-            "${CI_PYTHON}" -m compileall -q areal hcu_example
+            -m compileall -q 3rdparty/AReaL/areal hcu_areal examples tests
 
       - name: Check HCU launcher syntax
         run: |
-          find hcu_example -type f -name "*.sh" -print0 |
+          find examples tests .github/scripts -type f -name "*.sh" -print0 |
             xargs -0 -r -n1 bash -n
 
       - name: Check public HCU requirements policy
         run: |
-          if grep -nE '^.*\+das|^.*dtk[0-9]|^(torch|torchvision|triton|flash_attn|transformer_engine|hcu-megatron)==' requirements-hcu.txt; then
-            echo "requirements-hcu.txt must not contain internal HCU build pins."
+          if grep -nE '^.*\+das|^.*dtk[0-9]|^(torch|torchvision|triton|flash_attn|transformer_engine|hcu-megatron)==' requirements.txt; then
+            echo "requirements.txt must not contain internal HCU build pins."
             exit 1
           fi

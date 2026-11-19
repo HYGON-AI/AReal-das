@@ -1,23 +1,23 @@
 # Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 # SPDX-License-Identifier: Apache-2.0
-name: HCU Image Build and Test
+name: HCU Image Runtime Test
 
 on:
   workflow_dispatch:
     inputs:
       base_image:
-        description: "Official HCU SGLang base image (overrides repository variable HCU_BASE_IMAGE)"
+        description: "Existing HCU runtime image (overrides repository variable HCU_BASE_IMAGE_V2)"
         required: false
         type: string
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
-      - "areal/**"
+      - ".gitmodules"
+      - "3rdparty/**"
+      - "hcu_areal/**"
+      - ".github/scripts/check_image.py"
       - "examples/**"
-      - "hcu_example/**"
-      - "requirements-hcu.txt"
-      - "pyproject.toml"
-      - "docker/Dockerfile.hcu"
+      - "requirements.txt"
       - ".github/workflows/hcu-image-test.yml"
 permissions:
   contents: read
@@ -34,16 +34,15 @@ jobs:
       labels: [self-hosted, ci]
     timeout-minutes: 45
     env:
-      BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE }}
-      BASE_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE }}
-      IMAGE_TAG: areal-das:hcu-ci-${{ github.sha }}
+      BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE_V2 }}
+      BASE_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE_V2 }}
 
     steps:
       - name: Prepare base image and workspace
         run: |
           set -Eeuo pipefail
           test -n "${BASE_IMAGE}" || {
-            echo "Set repository variable HCU_BASE_IMAGE or provide workflow_dispatch input base_image."
+            echo "Set repository variable HCU_BASE_IMAGE_V2 or provide workflow_dispatch input base_image."
             exit 1
           }
           if ! docker image inspect "${BASE_IMAGE}" >/dev/null 2>&1; then
@@ -55,18 +54,19 @@ jobs:
             docker load -i "${BASE_IMAGE_ARCHIVE}"
           fi
           mkdir -p "${GITHUB_WORKSPACE}"
-          docker run --rm \
+          docker run --rm --entrypoint /bin/bash \
             -e HOST_UID="$(id -u)" \
             -e HOST_GID="$(id -g)" \
             -v "${GITHUB_WORKSPACE}:/workspace" \
             "${BASE_IMAGE}" \
-            bash -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
+            -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
 
       - name: Check out source
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           allow-unsafe-pr-checkout: true
+          submodules: recursive
 
       - name: Check HCU runner prerequisites
         run: |
@@ -77,18 +77,11 @@ jobs:
           /opt/hyhal/bin/hy-smi
           docker version
 
-      - name: Build AReaL-das HCU image
-        run: |
-          docker build \
-            --build-arg BASE_IMAGE="${BASE_IMAGE}" \
-            --file docker/Dockerfile.hcu \
-            --tag "${IMAGE_TAG}" \
-            .
-
       - name: Test imports and HCU visibility in image
         run: |
-          docker run --rm \
+          docker run --rm --entrypoint /bin/bash \
             -e UMASK=000 \
+            -e PYTHONDONTWRITEBYTECODE=1 \
             --shm-size=100g \
             --network=host \
             --privileged \
@@ -102,33 +95,30 @@ jobs:
             --ulimit memlock=-1:-1 \
             --ipc=host \
             --user=root \
-            "${IMAGE_TAG}" \
-            bash -lc 'source /opt/dtk/env.sh && exec python -c "$1"' bash '
-          from importlib.metadata import PackageNotFoundError, version
-          from packaging.version import Version
-          import areal
-          import sglang
-          import torch
-
-          try:
-              sglang_version = version("sglang")
-          except PackageNotFoundError:
-              sglang_version = sglang.__version__
-
-          print("torch:", torch.__version__, "hip=", torch.version.hip)
-          print("areal:", areal.__file__)
-          print("sglang:", sglang.__file__, sglang_version)
-          assert torch.version.hip is not None, "HCU PyTorch is required"
-          assert torch.cuda.device_count() > 0, "No HCU device is visible"
-          assert torch.cuda.is_available(), "HCU runtime is unavailable"
-          assert torch.ones(1, device="cuda").item() == 1
-          assert Version(sglang_version) >= Version("0.5.12")
-          '
+            -v "${GITHUB_WORKSPACE}:/workspace/AReal-das:ro" \
+            -w /workspace/AReal-das \
+            "${BASE_IMAGE}" \
+            -lc '
+              set -e
+              source /opt/dtk/env.sh
+              export PYTHONPATH="/opt/hyhal/share/smi${PYTHONPATH:+:${PYTHONPATH}}"
+              prepared_pythonpath="$(python -m hcu_areal.launch --pythonpath)"
+              export PYTHONPATH="${prepared_pythonpath}"
+              exec python .github/scripts/check_image.py
+            '
 
       - name: Test AReaL source and HCU launchers in image
         run: |
-          docker run --rm "${IMAGE_TAG}" bash -lc '
-            python -m compileall -q areal hcu_example &&
-            find hcu_example -type f -name "*.sh" -print0 | xargs -0 -r -n1 bash -n &&
-            python -c "import areal.engine.hcu"
+          docker run --rm --entrypoint /bin/bash \
+            -e PYTHONPYCACHEPREFIX=/tmp/hcu-ci-pycache \
+            -v "${GITHUB_WORKSPACE}:/workspace/AReal-das:ro" \
+            -w /workspace/AReal-das \
+            "${BASE_IMAGE}" -lc '
+            set -e
+            source /opt/dtk/env.sh
+            prepared_pythonpath="$(python -m hcu_areal.launch --pythonpath)"
+            export PYTHONPATH="${prepared_pythonpath}"
+            python -m compileall -q 3rdparty/AReaL/areal hcu_areal examples tests &&
+            find examples tests .github/scripts -type f -name "*.sh" -print0 | xargs -0 -r -n1 bash -n &&
+            python -c "import hcu_areal.engine.megatron_engine"
           '

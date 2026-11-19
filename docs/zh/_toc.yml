@@ -1,7 +1,0 @@
-format: jb-book
-root: intro
-parts:
-  - caption: HCU 指南
-    chapters:
-    - file: tutorial/installation
-    - file: tutorial/quickstart

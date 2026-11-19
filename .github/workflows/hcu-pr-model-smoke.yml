@@ -5,35 +5,26 @@ name: HCU PR Model Smoke
 on:
   workflow_dispatch:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "areal/**"
-      - "hcu_example/**"
-      - "examples/**"
-      - "requirements-hcu.txt"
-      - "pyproject.toml"
-      - ".github/workflows/hcu-pr-model-smoke.yml"
+    types: [opened, synchronize, reopened, ready_for_review, edited]
 permissions:
   contents: read
 
 concurrency:
-  group: hcu-pr-model-smoke-${{ github.workflow }}-${{ github.ref }}
+  group: hcu-pr-model-smoke-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  qwen3-8b-grpo:
-    name: Qwen3-8B GRPO smoke
-    if: github.event_name != 'pull_request_target' || github.event.pull_request.draft == false
+  model-smoke:
+    name: Selected model smoke
     runs-on:
       group: ci-general
       labels: [self-hosted, ci]
     timeout-minutes: 120
     env:
-      AREAL_CI_IMAGE: ${{ vars.HCU_BASE_IMAGE }}
-      AREAL_CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE }}
-      AREAL_CI_MODEL_PATH: ${{ vars.AREAL_CI_MODEL_PATH }}
+      AREAL_CI_IMAGE: ${{ vars.HCU_BASE_IMAGE_V2 }}
+      AREAL_CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE_V2 }}
+      AREAL_CI_MODELS_ROOT_V2: ${{ vars.AREAL_CI_MODELS_ROOT_V2 }}
       AREAL_CI_VENV: /opt/areal-venv-py31115
-      AREAL_CI_MEGATRON_HOME: /opt/hcu_megatron
       AREAL_CI_SGLANG_ROOT: /opt/sglang
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PYTHONUTF8: "1"
@@ -44,7 +35,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test -n "${AREAL_CI_IMAGE:-}" || {
-            echo "::error::Repository variable HCU_BASE_IMAGE is not configured."
+            echo "::error::Repository variable HCU_BASE_IMAGE_V2 is not configured."
             exit 2
           }
           if ! docker image inspect "${AREAL_CI_IMAGE}" >/dev/null 2>&1; then
@@ -57,11 +48,12 @@ jobs:
           fi
           mkdir -p "${GITHUB_WORKSPACE}"
           docker run --rm \
+            --entrypoint /bin/bash \
             -e HOST_UID="$(id -u)" \
             -e HOST_GID="$(id -g)" \
             -v "${GITHUB_WORKSPACE}:/workspace" \
             "${AREAL_CI_IMAGE}" \
-            bash -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
+            -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
 
       - name: Check out source
         uses: actions/checkout@v6
@@ -69,6 +61,10 @@ jobs:
           ref: ${{ github.event_name == 'pull_request_target' && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.sha }}
           # Required to test the fork merge ref from this pull_request_target job.
           allow-unsafe-pr-checkout: true
+          submodules: recursive
+
+      - name: Select model cases
+        run: python3 .github/scripts/plan_model_cases.py --output ci-model-plan.tsv
 
       - name: Verify HCU configuration and image
         shell: bash
@@ -76,9 +72,7 @@ jobs:
           set -Eeuo pipefail
           for name in \
             AREAL_CI_IMAGE \
-            AREAL_CI_MODEL_PATH \
             AREAL_CI_VENV \
-            AREAL_CI_MEGATRON_HOME \
             AREAL_CI_SGLANG_ROOT
           do
             test -n "${!name:-}" || {
@@ -86,21 +80,55 @@ jobs:
               exit 2
             }
           done
-          test -f "${AREAL_CI_MODEL_PATH}/config.json"
           test -e /dev/kfd
           test -e /dev/dri
           test -e /dev/mkfd
           test -x /opt/hyhal/bin/hy-smi
           docker image inspect "${AREAL_CI_IMAGE}" >/dev/null
+          timeout 15 /opt/hyhal/bin/hy-smi
+          timeout 15 /opt/hyhal/bin/hy-smi --showmeminfo vram
+          device_processes="$(timeout 15 /opt/hyhal/bin/hy-smi --showpids)"
+          printf '%s\n' "${device_processes}"
+          if printf '%s\n' "${device_processes}" | grep -Eq 'HCU Index:[[:space:]]*\[[^]]+\]'; then
+            echo "::error::HCU devices already have active processes; choose an idle runner."
+            exit 1
+          fi
 
-      - name: Run Qwen3-8B GRPO two-step smoke test
+      - name: Run selected model smoke cases
         shell: bash
         run: |
           set -Eeuo pipefail
+          if [[ "${AREAL_CI_MODELS_ROOT_V2}" != /* ]] ||
+             ! models_root="$(realpath -e -- "${AREAL_CI_MODELS_ROOT_V2}")" ||
+             [[ ! -d "${models_root}" || "${models_root}" == / ]]; then
+            echo "::error::AREAL_CI_MODELS_ROOT_V2 must point to a shared model directory"
+            exit 2
+          fi
           mkdir -p ci-artifacts ci-runtime ci-cache
-          trap 'chmod -R a+rX ci-artifacts 2>/dev/null || true' EXIT
+          container_name=""
+          cleanup() {
+            if [[ -n "${container_name}" ]]; then
+              docker stop -t 20 "${container_name}" >/dev/null 2>&1 || true
+            fi
+            chmod -R a+rX ci-artifacts 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
 
-          docker run --rm --interactive \
+          failed=0
+          while IFS=$'\t' read -r case_name case_config model_relative_path case_gpus; do
+          if ! model_path="$(realpath -e -- "${models_root}/${model_relative_path}")" ||
+             [[ "${model_path}" != "${models_root}/"* || ! -r "${model_path}/config.json" ]]; then
+            echo "::error::${case_name}: ${model_relative_path} must resolve to a readable model directory under AREAL_CI_MODELS_ROOT_V2"
+            failed=1
+            continue
+          fi
+          mkdir -p "ci-artifacts/${case_name}" "ci-runtime/${case_name}" "ci-cache/${case_name}"
+          echo "Running ${case_name} using ${case_config}"
+          container_name="hcu-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${case_name}"
+          if docker run --rm --init --name "${container_name}" \
+            --entrypoint /bin/bash \
             -e UMASK=000 \
             --network=host \
             --privileged \
@@ -117,119 +145,44 @@ jobs:
             --shm-size=100G \
             --user=root \
             -v "${GITHUB_WORKSPACE}:/workspace/AReaL-das" \
-            -v "${AREAL_CI_MODEL_PATH}:/model:ro" \
-            -e AREAL_HOME=/workspace/AReaL-das \
+            -v "${model_path}:/model:ro" \
             -e VENV="${AREAL_CI_VENV}" \
-            -e PYTHON_BIN="${AREAL_CI_VENV}/bin/python" \
-            -e MEGATRON_HOME="${AREAL_CI_MEGATRON_HOME}" \
-            -e SGLANG_ROOT="${AREAL_CI_SGLANG_ROOT}" \
             -e SGLANG_HOME="${AREAL_CI_SGLANG_ROOT}/python" \
             -e MODEL_PATH=/model \
-            -e TOKENIZER_PATH=/model \
-            -e AREAL_RUNS_ROOT=/workspace/AReaL-das/ci-artifacts/runs \
-            -e AREAL_RUNTIME_ROOT=/workspace/AReaL-das/ci-runtime \
-            -e AREAL_CACHE_ROOT=/workspace/AReaL-das/ci-cache \
-            -e CI_SUCCESS_MARKER=/workspace/AReaL-das/ci-artifacts/smoke-success \
-            -e SMOKE_DATASET_PATH=/workspace/AReaL-das/ci-runtime/math-smoke-dataset \
-            -e RAY_TMPDIR=/dev/shm/ray-pr-model-smoke \
-            -e TOTAL_TRAIN_STEPS=2 \
-            -e DISABLE_HF_SAVE=true \
-            -e MAX_NEW_TOKENS=256 \
-            -e N_SAMPLES=1 \
-            -e SGLANG_MEM_FRACTION_STATIC=0.4 \
-            -e SGLANG_ROCM_USE_AITER_MOE=0 \
+            -e CI_MODEL_CASE="${case_name}" \
+            -e CI_MODEL_GPUS="${case_gpus}" \
+            -e CI_EXAMPLE_CONFIG="${case_config}" \
+            -e AREAL_RUNS_ROOT="/workspace/AReaL-das/ci-artifacts/${case_name}/runs" \
+            -e AREAL_RUNTIME_ROOT="/workspace/AReaL-das/ci-runtime/${case_name}" \
+            -e AREAL_CACHE_ROOT="/workspace/AReaL-das/ci-cache/${case_name}" \
+            -e CI_SUCCESS_MARKER="/workspace/AReaL-das/ci-artifacts/${case_name}/smoke-success" \
             -e PYTHONDONTWRITEBYTECODE=1 \
             -w /workspace/AReaL-das \
             "${AREAL_CI_IMAGE}" \
-            bash -s <<'CONTAINER_SCRIPT'
-          set -Eeuo pipefail
-          trap 'chmod -R a+rwX "${AREAL_RUNS_ROOT}" "${AREAL_RUNTIME_ROOT}" "${AREAL_CACHE_ROOT}" 2>/dev/null || true' EXIT
-          test -x "${VENV}/bin/python"
-          test -d "${MEGATRON_HOME}/Megatron-LM"
-          test -d "${SGLANG_ROOT}/python/sglang"
-          test -f "${MODEL_PATH}/config.json"
-          source "${VENV}/bin/activate"
-          python - <<'PY'
-          import json
-          import os
-          import shutil
-
-          import torch
-          from datasets import Dataset, DatasetDict
-
-          with open("/model/config.json", encoding="utf-8") as config_file:
-              config = json.load(config_file)
-          assert config.get("model_type") == "qwen3", config.get("model_type")
-          assert config.get("hidden_size") == 4096, config.get("hidden_size")
-          assert config.get("num_hidden_layers") == 36, config.get("num_hidden_layers")
-
-          count = torch.cuda.device_count()
-          print(f"torch={torch.__version__}, hip={torch.version.hip}, devices={count}")
-          assert torch.version.hip is not None, "HCU/ROCm PyTorch is required"
-          assert count >= 8, "Qwen3-8B smoke test requires eight visible HCUs"
-
-          dataset_path = os.environ["SMOKE_DATASET_PATH"]
-          shutil.rmtree(dataset_path, ignore_errors=True)
-          samples = [
-              ("What is 1 + 1?", "2"),
-              ("What is 3 + 4?", "7"),
-              ("What is 9 - 5?", "4"),
-              ("What is 6 times 3?", "18"),
-              ("What is 20 divided by 4?", "5"),
-              ("What is 7 + 8?", "15"),
-              ("What is 12 - 7?", "5"),
-              ("What is 5 times 5?", "25"),
-          ]
-          records = [
-              {
-                  "messages": [
-                      {
-                          "role": "user",
-                          "content": question
-                          + "\nPlease put your final answer within \\boxed{}.",
-                      }
-                  ],
-                  "answer": f"#### {answer}",
-              }
-              for question, answer in samples
-          ]
-          dataset = Dataset.from_list(records)
-          DatasetDict(
-              {"train": dataset, "test": dataset.select(range(4))}
-          ).save_to_disk(dataset_path)
-          PY
-          smoke_config="${AREAL_RUNTIME_ROOT}/model-smoke-grpo.yaml"
-          sed "s|path: openai/gsm8k|path: ${SMOKE_DATASET_PATH}|g" \
-            "${AREAL_HOME}/examples/math/gsm8k_grpo.yaml" >"${smoke_config}"
-          test "$(grep -Fc "path: ${SMOKE_DATASET_PATH}" "${smoke_config}")" -eq 2
-          export GRPO_CONFIG=ci-runtime/model-smoke-grpo.yaml
-          cd "${AREAL_HOME}/hcu_example/grpo"
-          bash run.sh \
-            --model=qwen3_8b \
-            --variant=dense \
-            --backend=megatron \
-            --rollout=sglang \
-            --model-path="${MODEL_PATH}" \
-            --tokenizer-path="${TOKENIZER_PATH}" \
-            --nodes=1 \
-            --gpus-per-node=8 \
-            --restart-ray
-
-          train_log="$(find "${AREAL_RUNS_ROOT}" -type f -name train.log -print -quit)"
-          test -n "${train_log}"
-          test -s "${train_log}"
-          completed_steps="$(grep -Ec 'Train step [0-9]+/[0-9]+ done\.' "${train_log}")"
-          test "${completed_steps}" -eq "${TOTAL_TRAIN_STEPS}"
-          grep -Eq "Train step ${TOTAL_TRAIN_STEPS}/[0-9]+ done\." "${train_log}"
-          printf 'Qwen3-8B GRPO two-step smoke test completed.\n' >"${CI_SUCCESS_MARKER}"
-          CONTAINER_SCRIPT
-          test -s ci-artifacts/smoke-success
+            -c '
+              if [[ -x "${VENV}/bin/python" ]]; then
+                source "${VENV}/bin/activate"
+              fi
+              export PYTHONPATH="${PWD}:${SGLANG_HOME}:/opt/hyhal/share/smi:${PYTHONPATH:-}"
+              exec python3 .github/scripts/run_model_smoke.py
+            ' < /dev/null; then
+            if ! test -s "ci-artifacts/${case_name}/smoke-success"; then
+              echo "::error::${case_name}: success marker is missing"
+              failed=1
+            fi
+          else
+            echo "::error::${case_name}: smoke test failed"
+            failed=1
+          fi
+          container_name=""
+          done < ci-model-plan.tsv
+          exit "${failed}"
       - name: Upload model smoke logs
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: hcu-qwen3-8b-grpo-smoke-${{ github.run_id }}
+          name: hcu-model-smoke-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ci-artifacts/
             ci-runtime/

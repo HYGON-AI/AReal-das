@@ -34,7 +34,9 @@
       "parameters": {
         "strict_required_status_checks_policy": false,
         "required_status_checks": [
-          { "context": "pre-commit" }
+          { "context": "Source, Python, and shell checks" },
+          { "context": "Public CPU unit tests" },
+          { "context": "Selected model smoke" }
         ]
       }
     }

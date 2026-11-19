@@ -9,7 +9,7 @@ assignees: ''
 ## Checklist
 
 - [ ] This feature will maintain backward compatibility with the current APIs in
-  `areal/api/`. If not, please raise a refactor issue first.
+  `3rdparty/AReaL/areal/api/`. If not, please raise a refactor issue first.
 
 ## Background
 

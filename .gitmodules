@@ -1,0 +1,9 @@
+[submodule "3rdparty/AReaL"]
+	path = 3rdparty/AReaL
+	url = https://github.com/areal-project/AReaL.git
+[submodule "3rdparty/Megatron-LM-das"]
+	path = 3rdparty/Megatron-LM-das
+	url = https://github.com/HYGON-AI/Megatron-LM-das.git
+[submodule "3rdparty/Megatron-bridge-das"]
+	path = 3rdparty/Megatron-bridge-das
+	url = https://github.com/HYGON-AI/Megatron-bridge-das.git

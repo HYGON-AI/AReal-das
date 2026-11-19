@@ -1,0 +1,139 @@
+runtime:
+  base_config: 3rdparty/AReaL/examples/math/gsm8k_grpo.yaml
+  driver_log: /workspace/runs/logs/gsm8k_glm5_megatron_single_node/train.log
+  entrypoint: 3rdparty/AReaL/examples/math/gsm8k_rl.py
+  env:
+    ALLREDUCE_STREAM_WITH_COMPUTE: '1'
+    AREAL_ALLOW_DEFAULT_ADMIN_KEY: '1'
+    GLIBC_TUNABLES: glibc.rtld.optional_static_tls=0x40000
+    GPU_MAX_HW_QUEUES: '3'
+    HCU_AREAL_MEGATRON_AWEX_RELEASE_GRADS: '1'
+    HCU_AREAL_OPTIMIZER_CPU_OFFLOAD_FRACTION: '0.85'
+    HCU_AREAL_OPTIMIZER_PIN_CPU_GRADS: 'false'
+    HIP_D2H_DIRECT_COPY_THRESHOLD: '512'
+    HIP_D2H_DISABLE_COPY_BUFFER: '0'
+    HIP_D2H_HSAAPI_COPY_THRESHOLD: '512'
+    HIP_H2D_DIRECT_COPY_THRESHOLD: '32768'
+    HIP_H2D_DISABLE_COPY_BUFFER: '0'
+    HIP_H2D_HSAAPI_COPY_THRESHOLD: '32768'
+    HIP_KERNEL_BATCH_CEILING: '100'
+    HSA_KERNARG_POOL_SIZE: '8388608'
+    NCCL_MAX_NCHANNELS: '16'
+    NCCL_MIN_NCHANNELS: '8'
+    OMP_NUM_THREADS: '2'
+    OPENBLAS_NUM_THREADS: '1'
+    PYTHONUNBUFFERED: '1'
+    PYTORCH_ALLOC_CONF: expandable_segments:True
+    PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO: '0'
+    RAY_DEDUP_LOGS: '0'
+    RAY_USAGE_STATS_ENABLED: '0'
+    ROC_AQL_QUEUE_SIZE: '131072'
+    SGLANG_ASSIGN_EXTEND_CACHE_LOCS: '1'
+    SGLANG_ASSIGN_REQ_TO_TOKEN_POOL: '1'
+    SGLANG_CHUNKED_PREFIX_CACHE_THRESHOLD: '0'
+    SGLANG_CREATE_CHUNKED_PREFIX_CACHE_KV_INDICES: '1'
+    SGLANG_CREATE_FLASHMLA_KV_INDICES_TRITON: '1'
+    SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: '1200'
+    SGLANG_GET_LAST_LOC: '1'
+    SGLANG_KVALLOC_KERNEL: '1'
+    SGLANG_SET_CPU_AFFINITY: '1'
+    SGL_CHUNKED_PREFIX_CACHE_THRESHOLD: '0'
+    TOKENIZERS_PARALLELISM: 'false'
+    TORCHDYNAMO_DISABLE: '1'
+    TORCH_COMPILE_DISABLE: '1'
+    USE_HCU_CUSTOM_ALLREDUCE: '1'
+    WANDB_MODE: disabled
+  ray:
+    mode: auto
+    num_gpus: 8
+  unset_env:
+  - SGLANG_ENABLE_SPEC_V2
+  - SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO
+training:
+  actor:
+    _version: v2
+    backend: megatron:d2p1t2e4
+    eps_clip: 0.2
+    mb_spec:
+      max_tokens_per_mb: 1024
+      n_mbs: 1
+    megatron:
+      bridge_type: megatron-bridge
+      ddp:
+        grad_reduce_in_fp32: false
+      moe_permute_fusion: false
+      moe_router_dtype: fp32
+      moe_shared_expert_overlap: false
+      moe_token_dispatcher_type: alltoall
+      recompute_granularity: full
+      recompute_method: uniform
+      recompute_num_layers: 1
+      use_mbridge_save: false
+    optimizer:
+      lr: 1.0e-06
+      type: adam_bf16
+    path: <模型目录>
+    request_timeout: 3600
+    setup_timeout: 3600
+    workers_ready_timeout: 600
+  cluster:
+    fileroot: /workspace/runs
+    n_gpus_per_node: 8
+    n_nodes: 1
+    name_resolve:
+      nfs_record_root: /workspace/runs
+  evaluator:
+    freq_epochs: null
+    freq_secs: null
+    freq_steps: null
+  experiment_name: gsm8k-glm5-4layer-megatron
+  gconfig:
+    max_new_tokens: 128
+    n_samples: 2
+  recover:
+    freq_epochs: null
+    freq_secs: null
+    freq_steps: null
+    mode: disabled
+  rollout:
+    _version: v2
+    backend: sglang:d1p1t4
+    request_timeout: 3600
+    setup_timeout: 3600
+    workers_ready_timeout: 600
+  saver:
+    freq_epochs: null
+    freq_secs: null
+    freq_steps: null
+  scheduler:
+    type: ray
+  sglang:
+    attention_backend: null
+    chunked_prefill_size: 1024
+    context_length: 2048
+    disable_cuda_graph: true
+    disable_cuda_graph_padding: true
+    disable_overlap_schedule: true
+    disable_radix_cache: true
+    dtype: bfloat16
+    kv_cache_dtype: bfloat16
+    max_running_requests: 4
+    max_total_tokens: 8192
+    mem_fraction_static: 0.45
+    model_path: ${actor.path}
+    nsa_decode_backend: flashmla_kv
+    nsa_prefill_backend: flashmla_auto
+    page_size: 64
+  tokenizer_path: ${actor.path}
+  total_train_epochs: 1
+  total_train_steps: 2
+  train_dataset:
+    batch_size: 2
+    num_workers: 0
+    scheduling_spec: null
+  trial_name: single-node-2step
+  valid_dataset:
+    batch_size: 2
+    num_workers: 0
+    scheduling_spec: null

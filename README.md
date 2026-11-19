@@ -1,95 +1,73 @@
 # AReaL-das
 
-AReaL-das 是基于 [AReaL](https://github.com/areal-project/AReaL) 的 HCU
-平台适配版本，用于在海光计算单元（HCU）上使用 Ray、SGLang、FSDP 和 Megatron 进行强化学习训练。
+AReaL-das 是基于 [AReaL](https://github.com/areal-project/AReaL)
+的HCU生态的强化学习训练套件，旨在为HCU生态合作伙伴提供强化学习训练解决方案。
 
-## 特性
+## 快速开始
 
-- 支持 HCU 平台训练与 rollout
-- 支持 Ray 单节点和多节点资源调度
-- 支持 SGLang rollout 后端
-- 支持 FSDP 和 Megatron Actor 训练后端
-- 提供 Qwen、GLM 的 HCU GRPO 示例
+在 HCU 宿主机上拉取光源社区 Harbor 发布的 AReaL-das v2.1.0 镜像。
+
+```bash
+docker pull harbor.sourcefind.cn:5443/hcu/admin/base/custom:areal-das-v2.1.0-ubuntu22.04-dtk26.04-py3.12-torch2.10-20261119
+```
+
+从环境准备到两步训练，参见 [单机 Qwen3 GRPO 快速上手](docs/quickstart.md)。该示例使用
+Qwen3-8B、GSM8K、[Megatron-LM-das](https://github.com/HYGON-AI/Megatron-LM-das) 训练和
+[SGLang-das](https://github.com/HYGON-AI/sglang-das) 推理，训练使用 4 张卡、推理使用 4 张卡。
+
+其他模型配置、启动方式和验证范围见 [HCU 示例](examples/README.md)；适配代码及开发测试见
+[HCU 适配说明](hcu_areal/README.md)。
+
+## 自行配置环境
+
+当前参考镜像使用 Ubuntu 22.04、DTK 26.04-rc4 和 Python
+3.12.7。自行配置时，可在[光源社区 DAS PyPI](https://pypi.sourcefind.cn/) 查找适配包，按 DTK、Python 和 PyTorch
+版本选择对应的 wheel。下表记录镜像内的实际构建版本，包源是否提供该构建请以页面查询结果为准。通用 Python 包版本见
+[requirements.txt](requirements.txt)。
+
+| 用途                 | Python 包            | 镜像中的版本                                           |
+| -------------------- | -------------------- | ------------------------------------------------------ |
+| 张量计算与视觉       | `torch`              | `2.10.0+das.opt1.dtk2604.2609081206.g28498c`           |
+| 张量计算与视觉       | `torchvision`        | `0.25.0+das.opt1.dtk2604.torch2100.2609081417.gdcd044` |
+| 训练与算子           | `transformer_engine` | `2.13.0+das185.dtk2604.torch2100.2608131458.g06a38a`   |
+| 训练与算子           | `triton`             | `3.6.0+das.opt1.dtk2604.torch2100.2609081433.g65af71`  |
+| 训练与算子           | `flash_attn`         | `2.8.3+das.opt1.dtk2604.torch2100.2609081541.ge8ddf7`  |
+| 训练与算子           | `flash_mla`          | `1.2.0+das.opt1.dtk2604.torch2100.2609081603.gc33d94`  |
+| 推理                 | `sglang`             | `0.5.18+g453edca`                                      |
+| 推理                 | `sglang-kernel`      | `0.4.6.post1`                                          |
+| 推理                 | `vllm`               | `0.21.0+dtk2604.torch2100.2609082054.g8c979d`          |
+| 训练到推理的权重同步 | `awex`               | `0.8.1`                                                |
 
 ## 目录结构
 
 ```text
 AReaL-das/
-├── areal/                    # AReaL 源码与 HCU 适配
-├── hcu_example/              # HCU 环境配置与启动脚本
-├── docs/                     # 面向 HCU 的项目文档
-├── requirements-hcu.txt      # HCU 直接 Python 依赖
-├── LICENSE                   # Apache License 2.0
+├── 3rdparty/                 # 固定的 AReaL 和 Megatron DAS 子模块
+├── hcu_areal/                # HCU 运行时适配
+├── examples/                 # HCU 示例配置与使用说明
+├── tests/                # HCU 测试与验证
+├── docs/                     # 文档目录
+├── requirements.txt          # Python 依赖
+├── LICENSE                   # Apache-2.0 许可证
 └── README.md
 ```
 
-## 环境要求
+## 模型列表
 
-- Linux
-- Python 3.11
-- 与 HCU 设备和驱动匹配的 DTK 版本
-- HCU 版本的 PyTorch、SGLang、Ray；需要时还包括 Megatron-LM 与 Megatron-Bridge
+推理后端使用 SGLang-DAS，训练算法为 GRPO。✅ 两步短测已验证（点击查看启动方式） | 🚧 开发中 | 🔍 暂未验证
 
-> HCU 驱动、运行时，以及定制的 PyTorch、SGLang、Megatron 等软件包由对应 HCU 软件栈单独提供。requirements-hcu.txt
-> 仅列出直接 Python 依赖；底层 HCU 软件栈由对应 DTK 发行包提供。
+| 模型          |               FSDP 训练               |                Megatron 训练                | 说明                                                   |
+| ------------- | :-----------------------------------: | :-----------------------------------------: | ------------------------------------------------------ |
+| Qwen2.5-1.5B  | [✅](examples/README.md#qwen25-fsdp)  |  [✅](examples/README.md#qwen25-megatron)   |                                                        |
+| Qwen3-8B      |  [✅](examples/README.md#qwen3-fsdp)  |   [✅](examples/README.md#qwen3-megatron)   |                                                        |
+| Qwen3.5-4B    | [✅](examples/README.md#qwen35-fsdp)  |                     🔍                      | 测试时使用 SGLang 临时兼容修改                         |
+| Qwen3-30B-A3B |                  🔍                   | [✅](examples/README.md#qwen3-moe-megatron) | 单机 4+4 卡短训已验证，启用优化器 CPU 卸载，双机待验证 |
+| Qwen3-VL-4B   | [✅](examples/README.md#qwen3vl-fsdp) |                     🔍                      | 真实图片短测                                           |
+| Gemma3-4B     | [✅](examples/README.md#gemma3-fsdp)  |                     🔍                      | 真实图片短测，仍有重分词风险                           |
+| DeepSeek R1   |                  🔍                   | [🔍](examples/README.md#deepseek-megatron)  | 完整官方 FP8 待验证，四层 BF16 短测已通过              |
+| GLM-5         |                  🔍                   |   [✅](examples/README.md#glm5-megatron)    | 四层 BF16 检查点，单机 4+4 卡两步已验证，双机待验证    |
 
-## 安装
-
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements-hcu.txt
-python -m pip install -e . --no-deps
-```
-
-> `--no-deps` 可避免 pip 覆盖已安装的 HCU PyTorch、SGLang 和 Megatron 软件栈。
-
-## 配置外部组件路径
-
-请按实际环境设置以下路径：
-
-```bash
-export AREAL_HOME=/path/to/AReaL-das
-export SGLANG_ROOT=/path/to/sglang
-export MEGATRON_HOME=/path/to/hcu_megatron
-export MEGATRON_BRIDGE_HOME="${MEGATRON_HOME}/Megatron-Bridge"
-export PYTHONPATH="${AREAL_HOME}:${SGLANG_ROOT}/python:${MEGATRON_HOME}/Megatron-LM:${MEGATRON_BRIDGE_HOME}/src:${PYTHONPATH:-}"
-```
-
-仅 glm_moe_dsa 模型路径需要 hcu_megatron。
-
-## 快速开始
-
-HCU 示例脚本、环境变量说明、模型与后端支持矩阵、单节点与多节点启动流程均位于 [hcu_example](hcu_example/README.md)。
-
-首次运行前，请先按 [GRPO 示例说明](hcu_example/grpo/README.md) 配置 HCU 软件栈、模型路径和 Ray 环境；再使用该目录中的
-`run.sh` 选择模型与 Actor 后端。示例中提供 Qwen、Qwen3-VL、GLM 的 FSDP/Megatron + SGLang 启动脚本。
-
-## 支持的 HCU 示例
-
-| 模型                  | Actor 后端       | Rollout 后端     | 启动脚本                                                      |
-| --------------------- | ---------------- | ---------------- | ------------------------------------------------------------- |
-| Qwen3-8B              | FSDP 或 Megatron | SGLang           | hcu_example/grpo/run_qwen3_8b\_\*\_sglang.sh                  |
-| Qwen3-VL-4B           | FSDP             | SGLang（多模态） | hcu_example/grpo/run_qwen3_vl_4b_fsdp_sglang.sh               |
-| Qwen3-30B-A3B（4 层） | Megatron         | SGLang           | hcu_example/grpo/run_qwen3_30b_a3b_4layers_megatron_sglang.sh |
-| Qwen3-1.7B            | FSDP 或 Megatron | SGLang           | hcu_example/grpo/run_qwen3_1_7b\_\*\_sglang.sh                |
-| Qwen2.5-0.5B          | FSDP 或 Megatron | SGLang           | hcu_example/grpo/run_qwen2_5_0_5b\_\*\_sglang.sh              |
-| GLM-5（4 层）         | Megatron         | SGLang           | hcu_example/grpo/run_glm5_4layers_megatron_sglang.sh          |
-
-环境配置和启动细节请参阅 [HCU 示例](hcu_example/grpo/README.md) 与
-[HCU 安装文档](docs/zh/tutorial/installation.md)。
-
-## 依赖说明
-
-requirements-hcu.txt 仅包含项目直接 Python 依赖。以下底层组件必须按 HCU 软件栈和 DTK 版本预先安装，不包含在
-requirements-hcu.txt 中：
-
-- HCU 驱动和运行时
-- HCU 版本的 PyTorch、TorchVision 与 Triton
-- SGLang、sglang-kernel 与相关 HCU kernel
-- Flash Attention 与 Transformer Engine
-- Megatron-LM 与 Megatron-Bridge（仅 Megatron 示例需要）
+短测结果主要基于 SGLang-DAS `5c859f` 实验镜像；不代表精度、收敛或其他并行配置已验证。🔍 表示尚未验证，不代表不支持。
 
 ## 上游项目与版权
 
@@ -97,8 +75,8 @@ AReaL-das 基于 [areal-project/AReaL](https://github.com/areal-project/AReaL) �
 平台适配开发。
 
 - 上游仓库：https://github.com/areal-project/AReaL
-- 上游基线：v1.0.4
-- 上游 Commit：37d6c6400e99a05fa3409d6a067762a44df40d3b
+- 上游基线：v2.1.0
+- 上游 Commit：ecc8b0e4dfb4e3965f67121a5c87866a07c390ae
 - 上游许可证：Apache-2.0
 
 本仓库保留上游源文件中的原始版权声明和许可证条款。Modified by Hygon Information Technology Co., Ltd.

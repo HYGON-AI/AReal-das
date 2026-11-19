@@ -22,7 +22,7 @@ extensibility for context parallelism or expert parallelism."
 
 Explain the improvement and its benefits:
 
-**Example:** "Adopt Megatron-Core’s parallel state management instead of thecustom
+**Example:** "Adopt Megatron-Core’s parallel state management instead of the custom
 topology implementation. This would reduce maintenance overhead and improve support for
 emerging parallelism techniques"
 
