@@ -14,6 +14,7 @@ from .glm5_awex_layout import (
     glm5_wire_tensor,
 )
 from .deepseek_awex_layout import is_deepseek, deepseek_convert_gathered
+from .deepseek_v4_layout import export_parts as deepseek_v4_export_parts, is_deepseek_v4
 from .qwen35_awex_layout import (
     canonical_name,
     qwen35_convert_gathered,
@@ -266,6 +267,28 @@ def _enabled(models, name):
     return models is None or name in models
 
 
+def _deepseek_v4_train_iter(adapter, theta_by_id):
+    import torch
+
+    engine = adapter._engine
+    if theta_by_id is not None or engine.config.use_lora or _has_active_mtp(engine):
+        raise NotImplementedError(
+            "DeepSeek V4 AWEX requires a dense weight update with LoRA and MTP disabled"
+        )
+    for name, weight in engine.bridge.export_hf_weights(
+        list(engine.model),
+        show_progress=False,
+        merge_adapter_weights=False,
+        weight_dtype=torch.float32,
+    ):
+        yield from deepseek_v4_export_parts(
+            name,
+            weight.detach(),
+            engine.tf_config.csa_compress_ratios,
+            engine.hf_config.vocab_size,
+        )
+
+
 def _train_iter_factory(original, models=None):
     glm = _glm5_train_iter_factory(original)
 
@@ -273,6 +296,8 @@ def _train_iter_factory(original, models=None):
     def wrapper(self, theta_by_id=None, consume_overrides=False):
         if _enabled(models, "qwen35") and _is_qwen35_megatron(self):
             yield from _qwen35_train_iter(self, theta_by_id, consume_overrides)
+        elif _enabled(models, "deepseek") and is_deepseek_v4(self, "train"):
+            yield from _deepseek_v4_train_iter(self, theta_by_id)
         elif _enabled(models, "deepseek") and is_deepseek(self, "train"):
             yield from deepseek_train_iter(self, theta_by_id, consume_overrides)
         elif _enabled(models, "glm5"):
@@ -301,7 +326,9 @@ def _train_metadata_factory(original, models=None):
 def _train_preflight_factory(original, models=None):
     @functools.wraps(original)
     def wrapper(self, *args, **kwargs):
-        if _enabled(models, "deepseek") and is_deepseek(self, "train"):
+        if _enabled(models, "deepseek") and (
+            is_deepseek(self, "train") or is_deepseek_v4(self, "train")
+        ):
             deepseek_group_preflight(self, args, kwargs)
         if _enabled(models, "glm5") and is_glm5(self, "train"):
             glm5_group_preflight(self, args, kwargs)

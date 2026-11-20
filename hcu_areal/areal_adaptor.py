@@ -259,6 +259,14 @@ def patch_features(env=None) -> AReaLPatchesManager:
     )
 
     # AReaL configuration, engine, scheduler and lifecycle adaptations.
+    if env.get("HCU_AREAL_MCORE_DEV_COMPAT") == "1":
+        _add(
+            manager,
+            megatron_engine.MODULE,
+            "MegatronEngine._create_optimizer",
+            megatron_engine._core_dev_optimizer_factory,
+            "megatron.core_dev.optimizer",
+        )
     offload_fraction = megatron_engine.optimizer_cpu_offload_fraction(env)
     pin_cpu_grads = megatron_engine.optimizer_pin_cpu_grads(env)
     if pin_cpu_grads is not None and offload_fraction is None:
@@ -603,6 +611,8 @@ def apply_package_patches():
 
 def apply_driver_patches():
     """Apply driver-only patches before the training script consumes them."""
+    if os.getenv("HCU_AREAL_MCORE_DEV_COMPAT") == "1":
+        megatron_engine.enable_core_dev_compat()
     apply_modules(
         "areal.api.cli_args",
         "areal.infra.scheduler.ray",
@@ -673,6 +683,8 @@ def apply_training_patches(backend):
     if backend == "fsdp":
         apply_modules("areal.engine.fsdp_engine", _FSDP_AWEX)
     elif backend == "megatron":
+        if os.getenv("HCU_AREAL_MCORE_DEV_COMPAT") == "1":
+            megatron_engine.enable_core_dev_compat()
         # The engine imports make_mcore_model by value; patch its defining
         # module before importing the engine, not by scanning other modules.
         apply_modules(

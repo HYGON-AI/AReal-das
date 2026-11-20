@@ -19,6 +19,32 @@ _OPTIMIZER_CPU_OFFLOAD_ENV = "HCU_AREAL_OPTIMIZER_CPU_OFFLOAD_FRACTION"
 _OPTIMIZER_PIN_CPU_GRADS_ENV = "HCU_AREAL_OPTIMIZER_PIN_CPU_GRADS"
 
 
+def enable_core_dev_compat():
+    """Restore the checkpoint factory expected by the pinned AReaL release."""
+    from megatron.core.dist_checkpointing import serialization
+
+    if not hasattr(serialization, "get_default_save_sharded_strategy"):
+        serialization.get_default_save_sharded_strategy = (
+            serialization.TorchDistSaveShardedStrategy
+        )
+
+
+def _core_dev_optimizer_factory(original):
+    import torch
+    from megatron.core import utils
+    from megatron.core.optimizer import clip_grads
+
+    # The image's fused L2 reduction faults on the V4 gradient buffers.
+    clip_grads.multi_tensor_applier = utils.local_multi_tensor_applier
+    clip_grads.l2_norm_impl = utils.local_multi_tensor_l2_norm
+    clip_grads.multi_tensor_scale_impl = utils.local_multi_tensor_scale
+    clip_grads.multi_tensor_scale_tensor_impl = None
+
+    # Core dev takes views of native FP32 parameters while constructing the
+    # distributed optimizer. Those views must be leaf tensors for CPU offload.
+    return torch.no_grad()(original)
+
+
 def optimizer_cpu_offload_fraction(env):
     """Parse the opt-in Megatron optimizer offload setting."""
     value = str(env.get(_OPTIMIZER_CPU_OFFLOAD_ENV, "")).strip()

@@ -20,6 +20,7 @@ from .qwen3_vl_layout import (
 )
 from .glm5_awex_layout import is_glm5
 from .deepseek_awex_layout import is_deepseek
+from . import deepseek_v4_layout
 from .model_support import (
     _qwen35_report,
     glm5_metadata_report,
@@ -65,6 +66,10 @@ def _infer_parts_factory(original, models=None):
             is_deepseek_runtime_kv_scale,
         )
 
+        if _enabled(models, "deepseek") and deepseek_v4_layout.is_deepseek_v4(
+            self, "infer"
+        ):
+            return deepseek_v4_layout.inference_parts(name, tensor)
         if (models is None or "deepseek" in models) and is_deepseek(self, "infer"):
             if is_deepseek_runtime_kv_scale(name):
                 return []
@@ -137,6 +142,11 @@ class _StrategyProxy:
 def _infer_strategy_factory(original, models=None):
     @functools.wraps(original)
     def wrapper(self, rank_info):
+        if _enabled(models, "deepseek") and deepseek_v4_layout.is_deepseek_v4(
+            self, "infer"
+        ):
+            deepseek_v4_layout.validate_rollout(self, rank_info)
+            return deepseek_v4_layout.DeepSeekV4Sharding(rank_info.tp_size)
         base = original(self, rank_info)
         from hcu_areal.v2.weight_update.awex.deepseek_awex_layout import (
             is_deepseek,
@@ -428,6 +438,12 @@ def _refresh_factory(original, models=None):
 
     @functools.wraps(original)
     def wrapper(self, *args, **kwargs):
+        if _enabled(models, "deepseek") and deepseek_v4_layout.is_deepseek_v4(
+            self, "infer"
+        ):
+            result = original(self, *args, **kwargs)
+            self._get_model().post_load_weights()
+            return result
         if _enabled(models, "deepseek") and is_deepseek(self, "infer"):
             return deepseek(self, *args, **kwargs)
         if _enabled(models, "glm5") and is_glm5(self, "infer"):
