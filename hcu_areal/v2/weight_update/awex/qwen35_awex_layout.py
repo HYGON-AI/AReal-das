@@ -56,15 +56,20 @@ def canonical_name(name):
     return name
 
 
-def qwen35_mapping_registry():
+def qwen35_mapping_registry(model_type):
     from megatron.bridge.models.conversion.mapping_registry import (
         MegatronMappingRegistry,
     )
-    from megatron.bridge.models.qwen.qwen35_bridge import Qwen35MoEBridge
+    from megatron.bridge.models.qwen.qwen35_bridge import Qwen35Bridge, Qwen35MoEBridge
     from megatron.bridge.models.qwen_vl.qwen35_vl_bridge import _get_vision_mappings
 
     # Use individual expert names for MoE transfers.
-    language_mappings = Qwen35MoEBridge._get_moe_lm_mappings(
+    lm_mappings = (
+        Qwen35MoEBridge._get_moe_lm_mappings
+        if model_type == "qwen3_5_moe"
+        else Qwen35Bridge._get_dense_lm_mappings
+    )
+    language_mappings = lm_mappings(
         hf_prefix="model.language_model.", megatron_prefix="language_model."
     )
     return MegatronMappingRegistry(*language_mappings, *_get_vision_mappings())

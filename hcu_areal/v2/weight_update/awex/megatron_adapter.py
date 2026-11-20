@@ -143,7 +143,7 @@ def _has_active_mtp(engine):
 
 
 def _is_qwen35_megatron(adapter):
-    return adapter._engine.hf_config.model_type == "qwen3_5_moe"
+    return adapter._engine.hf_config.model_type in {"qwen3_5", "qwen3_5_moe"}
 
 
 def _qwen35_train_iter(adapter, theta_by_id, consume_overrides):
@@ -164,7 +164,7 @@ def _qwen35_train_iter(adapter, theta_by_id, consume_overrides):
     vocab_size = text_config(hf_config).vocab_size
     vision_heads = hf_config.vision_config.num_heads
     tp_size = mpu.get_tensor_model_parallel_world_size()
-    registry = qwen35_mapping_registry()
+    registry = qwen35_mapping_registry(hf_config.model_type)
     overrides = theta_by_id if theta_by_id is not None else {}
     for name, param in get_named_parameters(engine.model, config.num_moe_experts):
         src = overrides.get(id(param), param)
