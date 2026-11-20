@@ -13,7 +13,10 @@ from hcu_areal.v2.weight_update.awex.deepseek_fp8 import (
 )
 from hcu_areal.v2.weight_update.awex.gemma3_awex_layout import gemma3_inference_parts
 from hcu_areal.v2.weight_update.awex.glm5_awex_layout import glm5_inference_parts
-from hcu_areal.v2.weight_update.awex.qwen35_awex_layout import inference_parts
+from hcu_areal.v2.weight_update.awex.qwen35_awex_layout import (
+    _split_gdn_tp_rows,
+    inference_parts,
+)
 from hcu_areal.v2.weight_update.awex.qwen3_vl_layout import pack_vision_qkv_rank_major
 
 
@@ -67,6 +70,20 @@ def test_gemma3_and_qwen35_vision_parts():
             "k_proj",
             "v_proj",
         ]
+
+
+def test_qwen35_megatron_gdn_splits_tp_rows_in_projection_order():
+    # Each rank stores [Q, K, V, Z, B, A], with wider V/Z than Q/K.
+    rank_major = torch.arange(16).reshape(16, 1)
+    parts = _split_gdn_tp_rows(rank_major, (2, 2, 4, 4, 2, 2), tp_size=2)
+    assert [part.flatten().tolist() for part in parts] == [
+        [0, 8],
+        [1, 9],
+        [2, 3, 10, 11],
+        [4, 5, 12, 13],
+        [6, 14],
+        [7, 15],
+    ]
 
 
 def test_deepseek_fp8_export_has_independent_block_scales():

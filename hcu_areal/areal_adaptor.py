@@ -115,10 +115,12 @@ def _register_shared_awex(manager, models, *, trace=False):
             f"{preflight_owner}.awex.infer.preflight",
         )
 
-    megatron_models = models.intersection({"glm5", "deepseek"})
+    megatron_models = models.intersection({"glm5", "deepseek", "qwen35"})
     if not megatron_models:
         return
-    owner = "glm5" if "glm5" in megatron_models else "deepseek"
+    owner = next(
+        name for name in ("glm5", "deepseek", "qwen35") if name in megatron_models
+    )
     megatron_patches = [
         (
             _MEGATRON_AWEX,
