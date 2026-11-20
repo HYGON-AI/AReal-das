@@ -12,10 +12,10 @@ docker pull harbor.sourcefind.cn:5443/hcu/admin/base/custom:areal-das-v2.1.0-ubu
 
 ## 2. 获取代码
 
-在宿主机获取项目，并初始化固定版本的 AReaL、Megatron-LM-das 和 Megatron-bridge-das 子模块：
+在宿主机克隆 `v2.1.0` 分支，并初始化固定版本的 AReaL、Megatron-LM-das 和 Megatron-bridge-das 子模块。
 
 ```bash
-git clone --recurse-submodules https://github.com/HYGON-AI/AReal-das.git
+git clone --branch v2.1.0 --recurse-submodules https://github.com/HYGON-AI/AReal-das.git
 cd AReal-das
 git submodule update --init --recursive
 git submodule status
