@@ -15,6 +15,7 @@ _FIELDS = {
     "nsa_prefill_backend": (str | None, None),
     "nsa_decode_backend": (str | None, None),
     "max_total_tokens": (int | None, None),
+    "swa_full_tokens_ratio": (float | None, None),
     "fp8_gemm_backend": (
         str,
         dataclasses.field(
@@ -102,6 +103,8 @@ def _build_args_factory(original, manager):
                 attention_backend,
             )
         args = namespace["conf_as_dict"](sglang_config)
+        if args.get("swa_full_tokens_ratio") is None:
+            args.pop("swa_full_tokens_ratio", None)
         if sglang_config.enable_multithread_load:
             args["model_loader_extra_config"] = json.dumps(
                 {"enable_multithread_load": sglang_config.enable_multithread_load},

@@ -103,13 +103,59 @@ python3 -m hcu_areal.launch --config examples/configs/gsm8k_qwen3_megatron.yaml 
 
 ## Qwen3.5-4B：FSDP + SGLang
 
-模型目录填写 `<容器内Qwen3.5-4B 模型目录>`，单机 2 张 FSDP 训练卡和 2 张 SGLang 推理卡，最多训练 2 步，使用 BF16 KV
-cache。临时目录需要允许加载动态库，挂载为 `noexec` 的目录不适用于此用途。此前在 SGLang-DAS `5c859f` 上的两步短测还需要对两个 KDA
-模块做临时兼容修改；运行环境应包含相应修复，**仅修改 YAML 不能解决原镜像中的 `boltops` 导入错误**。
+单机使用 2 张 FSDP 训练卡和 2 张 SGLang 推理卡，最多训练 2 步，KV cache 使用 BF16。临时目录需要允许加载动态库。
+
+在容器内按[快速上手](../docs/quickstart.md#4-%E4%BD%BF%E7%94%A8%E7%8E%B0%E6%9C%89%E9%85%8D%E7%BD%AE)设置驱动模块搜索路径，确认
+4 张卡可见，并显式向 Ray 声明卡数。
 
 ```bash
 python3 -m hcu_areal.launch --config examples/configs/gsm8k_qwen35_fsdp.yaml \
-  --set "training.actor.path=<容器内Qwen3.5-4B 模型目录>"
+  --set "training.actor.path=<容器内 Qwen3.5-4B 模型目录>" \
+  --set 'runtime.ray.num_gpus=4'
+```
+
+SGLang `0.5.18+g453edca` 审计镜像使用上述配置完成两步训练和两次权重同步，两步梯度均为 0。当前公开发布镜像的同配置短训待验证。
+
+<a id="qwen35-moe-megatron"></a>
+
+## Qwen3.5-35B-A3B：Megatron + SGLang
+
+默认单机 8 卡，4 张 Megatron 训练卡和 4 张 SGLang 推理卡（两个 TP2 副本）。最多训练 2 步，通过 v2 AWEX 同步权重。配置关闭
+MTP，训练优化器全量卸载到宿主机内存。完整检查点已用公开镜像完成 4+2 卡两步短训和两次权重同步。
+
+在容器内执行，填入对应的模型挂载路径。
+
+```bash
+python3 -m hcu_areal.launch --config examples/configs/gsm8k_qwen35_moe_megatron.yaml \
+  --set "training.actor.path=<容器内 Qwen3.5-35B-A3B 模型目录>"
+```
+
+<a id="qwen36-moe-megatron"></a>
+
+## Qwen3.6-35B-A3B：Megatron + SGLang
+
+默认单机 8 卡，4 张 Megatron 训练卡和 4 张 SGLang 推理卡（两个 TP2 副本）。最多训练 2 步，通过 v2 AWEX 同步权重。配置关闭
+MTP，训练优化器全量卸载到宿主机内存。完整检查点已用公开镜像完成 4+2 卡两步短训和两次权重同步。
+
+在容器内执行，填入对应的模型挂载路径。
+
+```bash
+python3 -m hcu_areal.launch --config examples/configs/gsm8k_qwen36_moe_megatron.yaml \
+  --set "training.actor.path=<容器内 Qwen3.6-35B-A3B 模型目录>"
+```
+
+<a id="qwen38-megatron"></a>
+
+## Qwen3.8-27B：Megatron + SGLang
+
+使用完整 BF16 检查点。默认单机 8 卡，其中 4 张卡运行 Megatron（TP2 × PP2），4 张卡运行 SGLang（两个 TP2 副本）。配置最多训练 2
+步，关闭 MTP，训练优化器全量卸载到宿主机内存，通过 v2 AWEX 同步权重。4+2 卡实测完成两步训练及两次权重同步，两步梯度范数均非零。
+
+在容器内执行，填入模型挂载路径。
+
+```bash
+python3 -m hcu_areal.launch --config examples/configs/gsm8k_qwen38_megatron.yaml \
+  --set "training.actor.path=<容器内 Qwen3.8-27B BF16 模型目录>"
 ```
 
 <a id="qwen3-moe-megatron"></a>
@@ -135,9 +181,10 @@ python3 -m hcu_areal.launch --config examples/configs/gsm8k_qwen3_moe_megatron_s
 ### 双机启动
 
 双机配置默认每机 8 卡、每个 Ray 节点声明 128 个 CPU，最多训练 10
-步。两台机器需使用相同镜像和代码版本及路径，并在相同容器内路径下可读地访问模型；`/workspace/runs` 须挂载到同一个可写共享目录。两台宿主机分别运行前面的
-Docker 命令，使用各自的宿主机路径和相同的容器挂载路径。确认每台机器的设备和 CPU 满足配置，端口可用，并将命令中的尖括号及内容替换为实际值。如果需要调整 Ray
-声明的 CPU 数，在各节点启动命令中增加 `--set "runtime.ray.num_cpus=<实际可用 CPU 数>"`，并确保各角色的资源申请能够调度。
+步。该配置尚待双机实测。两台机器需使用相同镜像和代码版本及路径，并在相同容器内路径下可读地访问模型；`/workspace/runs`
+须挂载到同一个可写共享目录。两台宿主机分别运行前面的 Docker 命令，使用各自的宿主机路径和相同的容器挂载路径。确认每台机器的设备和 CPU
+满足配置，端口可用，并将命令中的尖括号及内容替换为实际值。如果需要调整 Ray 声明的 CPU 数，在各节点启动命令中增加
+`--set "runtime.ray.num_cpus=<实际可用 CPU 数>"`，并确保各角色的资源申请能够调度。
 
 在 Head 节点的容器内启动 Ray。
 
@@ -192,26 +239,57 @@ python3 -m hcu_areal.launch --config examples/configs/geometry3k_gemma3_fsdp.yam
   --set "training.actor.path=<容器内Gemma3-4B 模型目录>"
 ```
 
+<a id="deepseek-v4-flash-megatron"></a>
+
+## DeepSeek‑V4‑Flash 四层：Megatron + SGLang
+
+在宿主机按[四层模型检查点](../docs/four-layer-checkpoints.md#deepseek-v4-flash)准备模型目录，或使用已有的四层检查点。
+
+Megatron 训练需要支持 `dsv4_hybrid` 的 Core。下载
+[`43e45e13074f36da68b34c7a189cd997a01d1b41`](https://github.com/NVIDIA/Megatron-LM/commit/43e45e13074f36da68b34c7a189cd997a01d1b41)
+并解压至 `<宿主机 Core dev 目录>`。沿用[启动前准备](#%E5%90%AF%E5%8A%A8%E5%89%8D%E5%87%86%E5%A4%87)，在宿主机用
+8 张卡启动容器。将通用 `docker run` 命令的模型挂载替换为以下两项。
+
+```bash
+-v "<宿主机 Core dev 目录>:/workspace/AReal-das/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:ro" \
+-v "<宿主机四层模型目录>:/models/DeepSeek-V4-Flash-4layers:ro"
+```
+
+如果四层目录通过绝对符号链接引用原始分片，还需给同一容器追加 `-v "<宿主机原始模型绝对路径>:<宿主机原始模型绝对路径>:ro"`，以解析链接。
+
+配置最多训练 2 步。默认单机 8 卡，使用 4 张 Megatron 训练卡（TP1、EP4）和 4 张 SGLang 推理卡（两个 TP2 副本）。 SGLang
+使用镜像的 FP4 专家转 FP8 路径，并通过 v2 AWEX 同步权重。在容器内的 `/workspace/AReal-das` 执行以下命令。
+
+```bash
+python3 -m hcu_areal.launch --config examples/configs/gsm8k_deepseek_v4_flash_megatron.yaml \
+  --set 'training.actor.path=/models/DeepSeek-V4-Flash-4layers'
+```
+
+公开镜像与上述 Core dev 搭配，在 4+2 卡配置下已完成两步 GRPO 和两次 AWEX 同步。测试中两步梯度均为 0，结果覆盖采样、训练和同步流程。
+
 <a id="deepseek-megatron"></a>
 
 ## DeepSeek R1：Megatron + SGLang
 
-面向原版完整 DeepSeek R1 的检查点格式为官方 FP8 E4M3，使用 128×128 分块和配套的 `weight_scale_inv`。训练端由
-Megatron-Bridge-das 子模块读取权重并反量化为 BF16。完整官方 FP8 检查点的端到端训练尚待验证。
+使用官方 FP8 权重。检查点采用 E4M3、128 × 128 分块和配套的
+`weight_scale_inv`。按[四层模型检查点](../docs/four-layer-checkpoints.md#deepseek-r1)准备四层 FP8
+权重，并按该文档只读挂载四层目录和原始权重目录。
 
-下方命令用于复现已验证的四层 BF16 短测。该检查点为裁剪后的验证用权重。配置使用 4 张训练卡和 4 张推理卡，运行两步，采用 Triton attention、BF16
-KV cache 和优化器 CPU 卸载。
+仓库提供单机 4 张 Megatron 训练卡和 4 张 SGLang 推理卡的两步试跑配置。四层 FP8 检查点的生成已验证，四层和完整官方 FP8 检查点的端到端 GRPO
+均待验证。在容器内执行下面的命令。
 
 ```bash
 python3 -m hcu_areal.launch --config examples/configs/gsm8k_deepseek_megatron.yaml \
-  --set "training.actor.path=<容器内DeepSeek R1 四层 BF16 检查点目录>"
+  --set "training.actor.path=<容器内 DeepSeek-R1 四层 FP8 检查点目录>" \
+  --set 'runtime.ray.num_gpus=8'
 ```
 
 <a id="glm5-megatron"></a>
 
 ## GLM-5（4层）：Megatron + SGLang
 
-使用已准备好的 GLM-5 四层 BF16 检查点；YAML 不会自动将完整模型裁剪为四层。
+在宿主机按[四层模型检查点](../docs/four-layer-checkpoints.md#glm-5-bf16)准备 GLM-5 四层 BF16
+检查点。原始分片通过符号链接使用时，按该文档同时挂载原始目录。
 
 ### 单机启动
 
@@ -267,6 +345,22 @@ python3 -m hcu_areal.launch --config examples/configs/gsm8k_glm5_megatron.yaml \
 
 训练结束后，查看 `/workspace/runs/logs/gsm8k_glm5_megatron/train.log` 和命令退出状态；按需要清理本次创建的 Ray
 集群，不要停止其他任务的集群。
+
+## 复现 4+2 卡短训
+
+Qwen3.5‑35B‑A3B、Qwen3.6‑35B‑A3B、Qwen3.8‑27B 和 DeepSeek‑V4‑Flash 四层的端到端短训使用 4 张训练卡和 2
+张推理卡。使用快速上手中的公开镜像。启动容器时将 `CUDA_VISIBLE_DEVICES` 设为实际映射的 6 张卡，例如
+`0,1,2,3,4,5`。DeepSeek‑V4‑Flash 还需要按该示例准备 Core dev 和模型挂载。
+
+在容器内选择上文对应的模型配置，运行下列命令。两个卡数设置分别用于 Ray 和 AReaL，推理端使用单个 TP2 副本。
+
+```bash
+python3 -m hcu_areal.launch --config "examples/configs/<对应模型的 YAML 文件名>" \
+  --set "training.actor.path=<容器内模型目录>" \
+  --set 'runtime.ray.num_gpus=6' \
+  --set 'training.cluster.n_gpus_per_node=6' \
+  --set 'training.rollout.backend=sglang:d1p1t2'
+```
 
 ## 查看结果
 

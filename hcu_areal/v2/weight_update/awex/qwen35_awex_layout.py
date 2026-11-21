@@ -1,10 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Qwen3.5 dense FSDP -> SGLang AWEX canonical weight layout.
-
-No device imports at startup. Logic applies only to Qwen3.5 and is tested against
-8 real metadata traces for 4x FSDP and 4x SGLang tensor parallelism.
-"""
+"""Canonical layouts for Qwen models using the Qwen3.5 architecture."""
 
 from __future__ import annotations
 import re
@@ -20,6 +16,8 @@ def is_qwen35(adapter, role):
     engine = getattr(adapter, "_engine", None) if role == "train" else None
     model = getattr(engine, "model", None) if engine is not None else None
     cfg = getattr(engine, "model_config", None) if engine is not None else None
+    if cfg is None and engine is not None:
+        cfg = getattr(engine, "hf_config", None)
     if role == "infer":
         get_model = getattr(adapter, "_get_model", None)
         model = get_model() if callable(get_model) else None
@@ -56,6 +54,88 @@ def canonical_name(name):
         name = name.replace("model.visual.", "visual.", 1)
     name = re.sub(r"(model\.layers\.\d+)\.self_attn\.", r"\1.", name)
     return name
+
+
+def qwen35_mapping_registry(model_type):
+    from megatron.bridge.models.conversion.mapping_registry import (
+        MegatronMappingRegistry,
+    )
+    from megatron.bridge.models.qwen.qwen35_bridge import Qwen35Bridge, Qwen35MoEBridge
+    from megatron.bridge.models.qwen_vl.qwen35_vl_bridge import _get_vision_mappings
+
+    # Use individual expert names for MoE transfers.
+    lm_mappings = (
+        Qwen35MoEBridge._get_moe_lm_mappings
+        if model_type == "qwen3_5_moe"
+        else Qwen35Bridge._get_dense_lm_mappings
+    )
+    language_mappings = lm_mappings(
+        hf_prefix="model.language_model.", megatron_prefix="language_model."
+    )
+    return MegatronMappingRegistry(*language_mappings, *_get_vision_mappings())
+
+
+def _split_gdn_tp_rows(tensor, sizes, tp_size):
+    local_sizes = [size // tp_size for size in sizes]
+    rank_major = tensor.reshape(tp_size, sum(local_sizes), *tensor.shape[1:])
+    return [part.flatten(0, 1) for part in rank_major.split(local_sizes, dim=1)]
+
+
+def qwen35_convert_gathered(name, tensor, registry, config, vision_heads, tp_size):
+    from areal.engine.megatron_utils.megatron import _vision_qkv_mcore_to_hf
+    from megatron.bridge.models.conversion.param_mapping import (
+        AutoMapping,
+        ConcatenatedQKVMapping,
+        GatedMLPMapping,
+        GDNConv1dMapping,
+        GDNLinearMappingSeparate,
+        QKVMapping,
+        ReplicatedMapping,
+        RMSNorm2ZeroCenteredRMSNormMapping,
+        split_qkv_weights,
+    )
+
+    mapping = registry.megatron_to_hf_lookup(name.removeprefix("module.module."))
+    if isinstance(mapping, GDNLinearMappingSeparate):
+        key, value = key_value_dims(config)
+        heads = config.linear_num_value_heads
+        tensors = _split_gdn_tp_rows(
+            tensor, (key, key, value, value, heads, heads), tp_size
+        )
+        qkv_name = mapping.hf_param["qkv"]
+        names = [qkv_name.replace("in_proj_qkv", f"in_proj_{part}") for part in "qkv"]
+        names.extend(mapping.hf_param[part] for part in ("z", "b", "a"))
+        return list(zip(names, tensors))
+    if isinstance(mapping, GDNConv1dMapping):
+        key, value = key_value_dims(config)
+        tensors = _split_gdn_tp_rows(tensor, (key, key, value), tp_size)
+        names = [mapping.hf_param.replace("conv1d", f"conv1d_{part}") for part in "qkv"]
+        return list(zip(names, tensors))
+    if isinstance(mapping, ConcatenatedQKVMapping):
+        grouped = _vision_qkv_mcore_to_hf(tensor, vision_heads)
+        names = [mapping.hf_param.replace(".qkv.", f".{part}_proj.") for part in "qkv"]
+        return list(zip(names, grouped.chunk(3, dim=0)))
+    if isinstance(mapping, QKVMapping):
+        return list(
+            zip(
+                (mapping.hf_param[part] for part in "qkv"),
+                split_qkv_weights(config, tensor),
+            )
+        )
+    if isinstance(mapping, GatedMLPMapping):
+        return list(
+            zip(
+                (mapping.hf_param[part] for part in ("gate", "up")),
+                tensor.chunk(2, dim=0),
+            )
+        )
+    if isinstance(mapping, RMSNorm2ZeroCenteredRMSNormMapping):
+        return [(mapping.hf_param, tensor + 1)]
+    if isinstance(mapping, (AutoMapping, ReplicatedMapping)):
+        return [(mapping.hf_param, tensor)]
+    raise ValueError(
+        f"Unsupported Qwen3.5 AWEX mapping for {name}: {type(mapping).__name__}"
+    )
 
 
 def segments_for_training(name, shape, cfg):

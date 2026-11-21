@@ -14,7 +14,15 @@ from .glm5_awex_layout import (
     glm5_wire_tensor,
 )
 from .deepseek_awex_layout import is_deepseek, deepseek_convert_gathered
+from .deepseek_v4_layout import export_parts as deepseek_v4_export_parts, is_deepseek_v4
+from .qwen35_awex_layout import (
+    canonical_name,
+    qwen35_convert_gathered,
+    qwen35_mapping_registry,
+    text_config,
+)
 from .model_support import (
+    _qwen35_report,
     glm5_metadata_report,
     glm5_group_preflight,
     deepseek_metadata_report,
@@ -135,6 +143,55 @@ def _has_active_mtp(engine):
     return enabled is not False and bool(getattr(engine.tf_config, "mtp_num_layers", 0))
 
 
+def _is_qwen35_megatron(adapter):
+    return adapter._engine.hf_config.model_type in {"qwen3_5", "qwen3_5_moe"}
+
+
+def _qwen35_train_iter(adapter, theta_by_id, consume_overrides):
+    from areal.engine.megatron_utils.megatron import (
+        all_gather_param,
+        get_named_parameters,
+        remove_padding,
+    )
+    from megatron.core import parallel_state as mpu
+
+    engine = adapter._engine
+    if engine.quantization_config or engine.config.use_lora or _has_active_mtp(engine):
+        raise NotImplementedError(
+            "Qwen3.5 AWEX requires unquantized full-model training with MTP disabled"
+        )
+    hf_config = engine.hf_config
+    config = engine.model[0].config
+    vocab_size = text_config(hf_config).vocab_size
+    vision_heads = hf_config.vision_config.num_heads
+    tp_size = mpu.get_tensor_model_parallel_world_size()
+    registry = qwen35_mapping_registry(hf_config.model_type)
+    overrides = theta_by_id if theta_by_id is not None else {}
+    for name, param in get_named_parameters(engine.model, config.num_moe_experts):
+        src = overrides.get(id(param), param)
+        if src is not param:
+            for attr in ("tensor_model_parallel", "partition_dim", "partition_stride"):
+                if hasattr(param, attr):
+                    setattr(src, attr, getattr(param, attr))
+        gathered = all_gather_param(
+            name,
+            src,
+            duplicated_param_names=engine._duplicated_param_names,
+            gated_linear_unit=".language_model." in name,
+        )
+        gathered = remove_padding(name, gathered, vocab_size)
+        for hf_name, tensor in qwen35_convert_gathered(
+            name, gathered, registry, config, vision_heads, tp_size
+        ):
+            if hf_name == "lm_head.weight" and hf_config.tie_word_embeddings:
+                continue
+            if hf_name.endswith(".linear_attn.A_log"):
+                tensor = tensor.float()
+            yield canonical_name(hf_name), tensor.detach()
+        if consume_overrides:
+            overrides.pop(id(param), None)
+
+
 def deepseek_train_iter(adapter, theta_by_id=None, consume_overrides=False):
     import torch
     from areal.engine.megatron_utils.megatron import (
@@ -210,12 +267,38 @@ def _enabled(models, name):
     return models is None or name in models
 
 
+def _deepseek_v4_train_iter(adapter, theta_by_id):
+    import torch
+
+    engine = adapter._engine
+    if theta_by_id is not None or engine.config.use_lora or _has_active_mtp(engine):
+        raise NotImplementedError(
+            "DeepSeek V4 AWEX requires a dense weight update with LoRA and MTP disabled"
+        )
+    for name, weight in engine.bridge.export_hf_weights(
+        list(engine.model),
+        show_progress=False,
+        merge_adapter_weights=False,
+        weight_dtype=torch.float32,
+    ):
+        yield from deepseek_v4_export_parts(
+            name,
+            weight.detach(),
+            engine.tf_config.csa_compress_ratios,
+            engine.hf_config.vocab_size,
+        )
+
+
 def _train_iter_factory(original, models=None):
     glm = _glm5_train_iter_factory(original)
 
     @functools.wraps(original)
     def wrapper(self, theta_by_id=None, consume_overrides=False):
-        if _enabled(models, "deepseek") and is_deepseek(self, "train"):
+        if _enabled(models, "qwen35") and _is_qwen35_megatron(self):
+            yield from _qwen35_train_iter(self, theta_by_id, consume_overrides)
+        elif _enabled(models, "deepseek") and is_deepseek_v4(self, "train"):
+            yield from _deepseek_v4_train_iter(self, theta_by_id)
+        elif _enabled(models, "deepseek") and is_deepseek(self, "train"):
             yield from deepseek_train_iter(self, theta_by_id, consume_overrides)
         elif _enabled(models, "glm5"):
             yield from glm(self, theta_by_id, consume_overrides)
@@ -229,6 +312,8 @@ def _train_metadata_factory(original, models=None):
     @functools.wraps(original)
     def wrapper(self, *args, **kwargs):
         result = original(self, *args, **kwargs)
+        if _enabled(models, "qwen35") and _is_qwen35_megatron(self):
+            _qwen35_report("train", self, result)
         if _enabled(models, "glm5"):
             glm5_metadata_report("train", self, result)
         if _enabled(models, "deepseek"):
@@ -241,7 +326,9 @@ def _train_metadata_factory(original, models=None):
 def _train_preflight_factory(original, models=None):
     @functools.wraps(original)
     def wrapper(self, *args, **kwargs):
-        if _enabled(models, "deepseek") and is_deepseek(self, "train"):
+        if _enabled(models, "deepseek") and (
+            is_deepseek(self, "train") or is_deepseek_v4(self, "train")
+        ):
             deepseek_group_preflight(self, args, kwargs)
         if _enabled(models, "glm5") and is_glm5(self, "train"):
             glm5_group_preflight(self, args, kwargs)

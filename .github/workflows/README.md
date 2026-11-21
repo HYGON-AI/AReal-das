@@ -21,10 +21,15 @@ independently.
 `.github/model-cases.yaml` is the case registry (JSON syntax, valid YAML). Each entry
 names an example configuration, a model path relative to the shared model root, and its
 GPU count. The shared Python runner supports single-node, eight-HCU GSM8K examples. Each
-new case references the example YAML and a model directory under the shared root. It
-must not label a reduced checkpoint as a full model. The registry currently contains
-only `qwen3-4b-megatron`; other models are not implied to be supported until their cases
-are added and verified.
+new case references the example YAML and a model directory under the shared root.
+The registry uses full checkpoints for the following cases.
+
+| Case                      | Checkpoint      |
+| ------------------------- | --------------- |
+| `qwen3-4b-megatron`       | Qwen3-4B        |
+| `qwen35-35b-a3b-megatron` | Qwen3.5-35B-A3B |
+| `qwen36-35b-a3b-megatron` | Qwen3.6-35B-A3B |
+| `qwen38-27b-megatron`     | Qwen3.8-27B     |
 
 ## `hcu-source-checks.yml`
 

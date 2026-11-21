@@ -25,7 +25,7 @@
 
 <!-- 可选：留空时运行 qwen3-4b-megatron 基线；填写已登记的 case 名称则只运行所填 case，多个名称用英文逗号分隔。 -->
 
-<!-- 当前可用 case：qwen3-4b-megatron。完整清单及新增方式见 .github/model-cases.yaml 和 .github/workflows/README.md。 -->
+<!-- case 清单及新增方式见 .github/model-cases.yaml 和 .github/workflows/README.md。 -->
 
 <!-- 使用已有 case 无需修改清单；新增 case 时，需随 PR 提交清单项和训练配置，并填写模型在共享根目录下的相对路径。 -->
 

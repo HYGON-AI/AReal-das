@@ -12,6 +12,7 @@ import sys
 from .qwen35_awex_layout import is_qwen35
 from .glm5_awex_layout import is_glm5, assert_glm5_transfer_metadata
 from .deepseek_awex_layout import is_deepseek, assert_deepseek_transfer_metadata
+from .deepseek_v4_layout import is_deepseek_v4
 from .gemma3_awex_layout import is_gemma3, assert_gemma3_transfer_metadata
 
 
@@ -119,7 +120,7 @@ def glm5_group_preflight(adapter, args, kwargs):
 
 
 def deepseek_metadata_report(role, adapter, metadata):
-    if not is_deepseek(adapter, role):
+    if not (is_deepseek(adapter, role) or is_deepseek_v4(adapter, role)):
         return
     trace = os.getenv("HCU_AREAL_PATCH_TRACE_DIR", "").strip()
     if not trace:
@@ -168,7 +169,9 @@ def deepseek_group_preflight(adapter, args, kwargs):
 
 def check_group_preflight(adapter, args, kwargs, role, models=None):
     """Check metadata before the caller's adapter establishes its group."""
-    if (models is None or "deepseek" in models) and is_deepseek(adapter, role):
+    if (models is None or "deepseek" in models) and (
+        is_deepseek(adapter, role) or is_deepseek_v4(adapter, role)
+    ):
         deepseek_group_preflight(adapter, args, kwargs)
         return
     if (models is None or "glm5" in models) and is_glm5(adapter, role):

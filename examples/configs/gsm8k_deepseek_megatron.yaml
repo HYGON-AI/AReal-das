@@ -156,7 +156,7 @@ training:
     num_workers: 0
     path: openai/gsm8k
     scheduling_spec: null
-  trial_name: single-node-bf16-triton-2step
+  trial_name: single-node-fp8-triton-2step
   valid_dataset:
     batch_size: 2
     num_workers: 0
