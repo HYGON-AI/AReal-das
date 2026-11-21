@@ -13,6 +13,7 @@ NODE_IP="${1:-${NODE_IP:-$(hostname -I | awk '{print $1}')}}"
 NUM_GPUS="${NUM_GPUS:-${N_GPUS_PER_NODE:-8}}"
 NUM_CPUS="${NUM_CPUS:-${N_CPUS_PER_NODE:-128}}"
 STOP_EXISTING_RAY="${STOP_EXISTING_RAY:-1}"
+VALIDATE_RAY_WORKER_ENV="${VALIDATE_RAY_WORKER_ENV:-1}"
 
 if [[ -z "${NODE_IP}" ]]; then
   echo "[ERROR] Unable to determine NODE_IP. Usage: NODE_IP=<ip> bash $0 or bash $0 <ip>" >&2
@@ -53,8 +54,12 @@ sleep 3
 export RAY_ADDRESS="${NODE_IP}:${RAY_PORT}"
 ray status --address="${RAY_ADDRESS}"
 
-echo "[INFO] Validating Ray worker environment inherited from the head daemon..."
-areal_validate_ray_worker_env
-
-echo "[OK] Ray head started and environment validated: ${RAY_ADDRESS}"
+if [[ "${VALIDATE_RAY_WORKER_ENV}" == "1" ]]; then
+  echo "[INFO] Validating Ray worker environment inherited from the head daemon..."
+  areal_validate_ray_worker_env
+  echo "[OK] Ray head started and environment validated: ${RAY_ADDRESS}"
+else
+  echo "[INFO] Deferring Ray worker environment validation to the training preflight."
+  echo "[OK] Ray head started: ${RAY_ADDRESS}"
+fi
 echo "Worker command: bash ${SCRIPT_DIR}/start_ray_worker.sh ${NODE_IP} <worker-ip>"

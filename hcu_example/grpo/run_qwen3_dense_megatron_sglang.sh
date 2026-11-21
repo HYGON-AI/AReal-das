@@ -2,6 +2,12 @@
 # Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 # SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
+# Launcher metadata consumed by grpo/run.sh without sourcing this file.
+HCU_LAUNCHER_FAMILY=qwen3
+HCU_LAUNCHER_VARIANT=dense
+HCU_LAUNCHER_ACTOR_BACKEND=megatron
+HCU_LAUNCHER_ROLLOUT_BACKEND=sglang
+HCU_LAUNCHER_PROFILE=qwen
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE:-qwen}"
 # shellcheck disable=SC1091
@@ -14,19 +20,20 @@ N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-8}"
 ACTOR_BACKEND="${ACTOR_BACKEND:-megatron:d1p1t4}"
 ROLLOUT_BACKEND="${ROLLOUT_BACKEND:-sglang:d1p1t4}"
 WEIGHT_UPDATE_MODE="${WEIGHT_UPDATE_MODE:-xccl}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-qwen3-8b-hcu}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-qwen3-dense}"
 TRIAL_NAME="${TRIAL_NAME:-grpo-megatron-tp4-sglang-tp4-fa3}"
 TIMESTAMP="${TIMESTAMP:-$(date '+%Y%m%d-%H%M%S')}"
-LOG_DIR="${LOG_DIR:-${AREAL_RUNS_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
+LOG_DIR="${LOG_DIR:-${LOG_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
 LOG_FILE="${LOG_FILE:-${LOG_DIR}/train.log}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-1}"
 VALID_BATCH_SIZE="${VALID_BATCH_SIZE:-1}"
 N_SAMPLES="${N_SAMPLES:-2}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-1024}"
 TOTAL_TRAIN_EPOCHS="${TOTAL_TRAIN_EPOCHS:-1}"
-# Leave empty for normal epoch-based training. CI sets this to 2 for its
-# two-step smoke test.
-TOTAL_TRAIN_STEPS="${TOTAL_TRAIN_STEPS:-}"
+TOTAL_TRAIN_STEPS="${TOTAL_TRAIN_STEPS:-10}"
+ACTOR_LR="${ACTOR_LR:-1.7e-5}"
+ACTOR_MAX_TOKENS_PER_MB="${ACTOR_MAX_TOKENS_PER_MB:-10240}"
+
 # Saving a full HF checkpoint temporarily gathers tensor-parallel weights and
 # can exceed device memory. CI disables it; normal training keeps the YAML
 # saver configuration unchanged.
@@ -51,6 +58,8 @@ DATA_CONFIG=(
 )
 ACTOR_CONFIG=(
   "actor.backend=${ACTOR_BACKEND}" "actor.path=${MODEL_PATH}" "actor.weight_update_mode=${WEIGHT_UPDATE_MODE}"
+  "actor.optimizer.lr=${ACTOR_LR}"
+  "actor.mb_spec.max_tokens_per_mb=${ACTOR_MAX_TOKENS_PER_MB}"
   "++actor.attn_impl=${ACTOR_ATTN_IMPL}"
 )
 ROLLOUT_CONFIG=(

@@ -27,7 +27,7 @@ export AREAL_EXAMPLES_ROOT="${AREAL_EXAMPLES_ROOT:-$(cd "${AREAL_COMMON_DIR}/.."
 #   source hcu_example/common/common_env.sh
 #
 # SGLANG_HOME means the Python source directory (normally <SGLANG_ROOT>/python).
-# MEGATRON_HOME means the directory containing Megatron-LM and Megatron-Bridge.
+# MEGATRON_HOME means the root directory of the Megatron-LM-das repository.
 
 if [[ -n "${AREAL_HOME:-}" ]]; then
   :
@@ -54,6 +54,13 @@ fi
 export VENV_PATH="${VENV}"
 export PYTHON_BIN="${PYTHON_BIN:-${VENV}/bin/python}"
 
+# MEGATRON_HOME is the root directory of the Megatron-LM-das repository.
+# The repositories are stored below:
+#
+#   ${MEGATRON_HOME}/3rdparty/Megatron-LM
+#   ${MEGATRON_HOME}/3rdparty/Megatron-Bridge
+#   ${MEGATRON_HOME}/3rdparty/Megatron-Energon
+#
 # MEGATRON_HOME is canonical; MEGATRON_ROOT is accepted as an alias.
 if [[ -n "${MEGATRON_HOME:-}" ]]; then
   :
@@ -62,7 +69,37 @@ elif [[ -n "${MEGATRON_ROOT:-}" ]]; then
 else
   export MEGATRON_HOME="${BASE_DIR}/hcu_megatron"
 fi
+
 export MEGATRON_ROOT="${MEGATRON_HOME}"
+
+# Support both Megatron repository layouts:
+#
+# New Megatron-LM-das layout:
+#   ${MEGATRON_HOME}/3rdparty/Megatron-LM
+#   ${MEGATRON_HOME}/3rdparty/Megatron-Bridge
+#   ${MEGATRON_HOME}/3rdparty/Megatron-Energon
+#
+# Legacy / CI image layout:
+#   ${MEGATRON_HOME}/Megatron-LM
+#   ${MEGATRON_HOME}/Megatron-Bridge
+#   ${MEGATRON_HOME}/Megatron-Energon
+#
+# An explicitly exported MEGATRON_3RDPARTY_HOME still takes precedence.
+if [[ -n "${MEGATRON_3RDPARTY_HOME:-}" ]]; then
+  :
+elif [[ -d "${MEGATRON_HOME}/3rdparty/Megatron-LM" ]]; then
+  export MEGATRON_3RDPARTY_HOME="${MEGATRON_HOME}/3rdparty"
+elif [[ -d "${MEGATRON_HOME}/Megatron-LM" ]]; then
+  export MEGATRON_3RDPARTY_HOME="${MEGATRON_HOME}"
+else
+  echo "[ERROR] Megatron-LM not found under ${MEGATRON_HOME}" >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+export MEGATRON_LM_HOME="${MEGATRON_LM_HOME:-${MEGATRON_3RDPARTY_HOME}/Megatron-LM}"
+export MEGATRON_BRIDGE_HOME="${MEGATRON_BRIDGE_HOME:-${MEGATRON_3RDPARTY_HOME}/Megatron-Bridge}"
+export MEGATRON_ENERGON_HOME="${MEGATRON_ENERGON_HOME:-${MEGATRON_3RDPARTY_HOME}/Megatron-Energon}"
+export HCU_MEGATRON_HOME="${HCU_MEGATRON_HOME:-${MEGATRON_HOME}/hcu_megatron}"
 
 # SGLANG_HOME is canonical for the Python source tree.  If only SGLANG_ROOT is
 # exported, SGLANG_HOME is derived as <SGLANG_ROOT>/python.  If SGLANG_HOME is
@@ -86,8 +123,16 @@ if [[ ! -x "${PYTHON_BIN}" ]]; then
   return 1 2>/dev/null || exit 1
 fi
 
-if [[ ! -d "${MEGATRON_HOME}/Megatron-LM" ]]; then
-  echo "[ERROR] Megatron-LM not found: ${MEGATRON_HOME}/Megatron-LM" >&2
+if [[ ! -d "${MEGATRON_LM_HOME}" ]]; then
+  echo "[ERROR] Megatron-LM not found: ${MEGATRON_LM_HOME}" >&2
+  return 1 2>/dev/null || exit 1
+fi
+if [[ ! -d "${MEGATRON_BRIDGE_HOME}/src" ]]; then
+  echo "[ERROR] Megatron-Bridge source not found: ${MEGATRON_BRIDGE_HOME}/src" >&2
+  return 1 2>/dev/null || exit 1
+fi
+if [[ ! -d "${MEGATRON_ENERGON_HOME}" ]]; then
+  echo "[ERROR] Megatron-Energon not found: ${MEGATRON_ENERGON_HOME}" >&2
   return 1 2>/dev/null || exit 1
 fi
 
@@ -109,9 +154,11 @@ source "${VENV}/bin/activate"
 export PATH="${VENV}/bin:${PATH}"
 _AREAL_PYTHONPATH_PARTS=(
   "${MEGATRON_HOME}"
+  "${HCU_MEGATRON_HOME}"
+  "${MEGATRON_LM_HOME}"
+  "${MEGATRON_BRIDGE_HOME}/src"
+  "${MEGATRON_ENERGON_HOME}"
   "${AREAL_HOME}"
-  "${MEGATRON_HOME}/Megatron-Bridge/src"
-  "${MEGATRON_HOME}/Megatron-LM"
   "${SGLANG_HOME}"
 )
 if [[ -n "${AREAL_EXTRA_PYTHONPATH:-}" ]]; then
@@ -226,6 +273,81 @@ case "${AREAL_ENV_PROFILE}" in
     export SGLANG_ENABLE_SPEC_V2="${SGLANG_ENABLE_SPEC_V2:-1}"
     export SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO="${SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO:-1}"
     ;;
+  gemma3)
+    # -----------------------------------------------------------------------
+    # Gemma3 HCU correctness profile
+    # -----------------------------------------------------------------------
+    # This profile intentionally mirrors start_sglang_gemma3.sh, which is the
+    # known-working standalone inference baseline on this machine. These values
+    # are forced (rather than inherited with ${VAR:-default}) so a shell that
+    # previously ran Qwen/GLM cannot silently change the Gemma3 kernel path.
+
+    # Gemma3 has no speculative/MTP path in this baseline.
+    unset SGLANG_ENABLE_SPEC_V2 || true
+    unset SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO || true
+    unset SGLANG_SPEC_NAN_DETECTION || true
+    unset SGLANG_SPEC_OOB_DETECTION || true
+
+    # Remove Qwen/MLA/KV fast paths that are enabled by the shared HCU defaults
+    # but are not present in the validated standalone Gemma3 script.
+    unset SGLANG_KVALLOC_KERNEL || true
+    unset SGLANG_ASSIGN_EXTEND_CACHE_LOCS || true
+    unset SGLANG_ASSIGN_REQ_TO_TOKEN_POOL || true
+    unset SGLANG_GET_LAST_LOC || true
+    unset SGLANG_CREATE_FLASHMLA_KV_INDICES_TRITON || true
+    unset SGLANG_CREATE_CHUNKED_PREFIX_CACHE_KV_INDICES || true
+
+    # Disable fusion/quant/speculative environment switches that the standalone
+    # correctness script explicitly leaves off for Gemma3.
+    unset SGLANG_USE_FP8_W8A8_MOE || true
+    unset SGLANG_USE_LIGHTOP || true
+    unset SGLANG_USE_OPT_CAT || true
+    unset SGLANG_USE_FUSED_RMSNORM_ROPE || true
+    unset SGLANG_USE_RMS_QUANT_PATH || true
+    unset USE_FUSED_RMS_QUANT_PATH || true
+
+    # The standalone baseline does not request expandable_segments; the current
+    # HCU allocator explicitly reports it as unsupported, so remove both aliases.
+    unset PYTORCH_ALLOC_CONF || true
+    unset PYTORCH_CUDA_ALLOC_CONF || true
+
+    # Python / compile correctness baseline.
+    export TORCH_COMPILE_DISABLE=1
+    export TORCHDYNAMO_DISABLE=1
+
+    # HIP runtime: exact values from start_sglang_gemma3.sh.
+    export GLIBC_TUNABLES='glibc.rtld.optional_static_tls=0x40000'
+    export HIP_KERNEL_BATCH_CEILING=100
+    export GPU_MAX_HW_QUEUES=4
+    export HSA_KERNARG_POOL_SIZE=8388608
+    export ROC_AQL_QUEUE_SIZE=131072
+
+    export HIP_H2D_DISABLE_COPY_BUFFER=0
+    export HIP_D2H_DISABLE_COPY_BUFFER=0
+    export HIP_H2D_DIRECT_COPY_THRESHOLD=32768
+    export HIP_H2D_HSAAPI_COPY_THRESHOLD=32768
+    export HIP_D2H_DIRECT_COPY_THRESHOLD=512
+    export HIP_D2H_HSAAPI_COPY_THRESHOLD=512
+
+    # Communication baseline. Keep the HCU alias in addition to the standalone
+    # USE_HCU_* name because AReaL/HCU helpers may read it.
+    export USE_HCU_CUSTOM_ALLREDUCE=1
+    export NCCL_MAX_NCHANNELS=16
+    export NCCL_MIN_NCHANNELS=16
+    export ALLREDUCE_STREAM_WITH_COMPUTE=1
+
+    # SGLang environment from the standalone baseline.
+    export SGL_CHUNKED_PREFIX_CACHE_THRESHOLD=0
+    export SGLANG_CHUNKED_PREFIX_CACHE_THRESHOLD=0
+    export SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT=1200
+    export SGLANG_SET_CPU_AFFINITY=1
+
+    # Host-global NUMA policy from the standalone script. --numa-node itself is
+    # a SGLang CLI option not currently represented by this AReaL launcher.
+    if command -v sysctl >/dev/null 2>&1; then
+      sysctl -w kernel.numa_balancing=0 >/dev/null 2>&1 || true
+    fi
+    ;;
   glm5)
     # GLM5/MLA path is intentionally different from Qwen's speculative-v2 path.
     unset SGLANG_ENABLE_SPEC_V2 || true
@@ -239,8 +361,38 @@ case "${AREAL_ENV_PROFILE}" in
     export NCCL_MIN_NCHANNELS="${NCCL_MIN_NCHANNELS:-8}"
     export ALLREDUCE_STREAM_WITH_COMPUTE="${ALLREDUCE_STREAM_WITH_COMPUTE:-1}"
     ;;
+  deepseek)
+    # DeepSeek-R1/V3: MLA + MoE path via HCU. AITER optimization is controlled
+    # by env flags that default to ON on HIP/ROCm, so it is explicitly disabled
+    # here for DeepSeek. SGLANG_USE_AITER remains the master switch.
+    export SGLANG_USE_AITER="${SGLANG_USE_AITER:-0}"
+    export SGLANG_USE_AITER_AR="${SGLANG_USE_AITER_AR:-0}"
+    export SGLANG_ROCM_USE_AITER_MOE="${SGLANG_ROCM_USE_AITER_MOE:-0}"
+    # DeepSeek uses the speculative-v2 / My-scripts style HCU triton kernels.
+    export SGLANG_ENABLE_SPEC_V2="${SGLANG_ENABLE_SPEC_V2:-1}"
+    export SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO="${SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO:-1}"
+    export SGLANG_ASSIGN_EXTEND_CACHE_LOCS="${SGLANG_ASSIGN_EXTEND_CACHE_LOCS:-1}"
+    export SGLANG_ASSIGN_REQ_TO_TOKEN_POOL="${SGLANG_ASSIGN_REQ_TO_TOKEN_POOL:-1}"
+    export SGLANG_GET_LAST_LOC="${SGLANG_GET_LAST_LOC:-1}"
+    export SGLANG_CREATE_FLASHMLA_KV_INDICES_TRITON="${SGLANG_CREATE_FLASHMLA_KV_INDICES_TRITON:-1}"
+    export SGLANG_CREATE_CHUNKED_PREFIX_CACHE_KV_INDICES="${SGLANG_CREATE_CHUNKED_PREFIX_CACHE_KV_INDICES:-1}"
+    # HCU lightop / fused kernels used by the DeepSeek launcher.
+    export SGLANG_USE_LIGHTOP="${SGLANG_USE_LIGHTOP:-1}"
+    export SGLANG_USE_OPT_CAT="${SGLANG_USE_OPT_CAT:-1}"
+    export SGLANG_USE_FP8_W8A8_MOE="${SGLANG_USE_FP8_W8A8_MOE:-1}"
+    export SGLANG_USE_RMS_QUANT_PATH="${SGLANG_USE_RMS_QUANT_PATH:-1}"
+    export USE_FUSED_RMS_QUANT_PATH="${USE_FUSED_RMS_QUANT_PATH:-1}"
+    export SGLANG_USE_FUSED_RMSNORM_ROPE="${SGLANG_USE_FUSED_RMSNORM_ROPE:-1}"
+    # NCCL / HSA / AQL tuning for large-scale runs.
+    export HSA_KERNARG_POOL_SIZE="${HSA_KERNARG_POOL_SIZE:-8388608}"
+    export ROC_AQL_QUEUE_SIZE="${ROC_AQL_QUEUE_SIZE:-131072}"
+    export NCCL_MAX_NCHANNELS="${NCCL_MAX_NCHANNELS:-16}"
+    export NCCL_MIN_NCHANNELS="${NCCL_MIN_NCHANNELS:-16}"
+    export ALLREDUCE_STREAM_WITH_COMPUTE="${ALLREDUCE_STREAM_WITH_COMPUTE:-1}"
+    export SGLANG_DISABLE_CUSTOM_ALL_REDUCE="${SGLANG_DISABLE_CUSTOM_ALL_REDUCE:-True}"
+    ;;
   *)
-    echo "[ERROR] Unknown AREAL_ENV_PROFILE=${AREAL_ENV_PROFILE}. Use base, qwen, qwen35, or glm5." >&2
+    echo "[ERROR] Unknown AREAL_ENV_PROFILE=${AREAL_ENV_PROFILE}. Use base, qwen, qwen35, gemma3, glm5, or deepseek." >&2
     return 2 2>/dev/null || exit 2
     ;;
 esac
@@ -270,8 +422,8 @@ areal_preflight_common() {
 
   for dir in \
     "${AREAL_HOME}" \
-    "${MEGATRON_HOME}/Megatron-LM" \
-    "${MEGATRON_HOME}/Megatron-Bridge/src" \
+    "${MEGATRON_LM_HOME}" \
+    "${MEGATRON_BRIDGE_HOME}/src" \
     "${SGLANG_HOME}/sglang" \
     "${VENV}"
   do
@@ -339,7 +491,9 @@ areal_print_python_env() {
   echo "VENV:            ${VENV}"
   echo "Python:          ${PYTHON_BIN}"
   echo "AReaL:           ${AREAL_HOME}"
-  echo "Megatron:        ${MEGATRON_HOME}"
+  echo "Megatron root:   ${MEGATRON_HOME}"
+  echo "Megatron-LM:     ${MEGATRON_LM_HOME}"
+  echo "Megatron-Bridge: ${MEGATRON_BRIDGE_HOME}"
   echo "SGLang source:   ${SGLANG_HOME}"
   echo "Ray:             $(command -v ray 2>/dev/null || echo not-found)"
   "${PYTHON_BIN}" - <<'PY'
@@ -382,7 +536,7 @@ areal_save_env_snapshot() {
     for name in \
       AREAL_ENV_PROFILE AREAL_EXAMPLES_ROOT AREAL_HOME AREAL_ROOT BASE_DIR \
       VENV VENV_PATH PYTHON_BIN DTK_ENV \
-      MEGATRON_HOME MEGATRON_ROOT SGLANG_HOME SGLANG_ROOT AREAL_EXTRA_PYTHONPATH \
+      MEGATRON_HOME MEGATRON_ROOT MEGATRON_3RDPARTY_HOME MEGATRON_LM_HOME MEGATRON_BRIDGE_HOME MEGATRON_ENERGON_HOME HCU_MEGATRON_HOME SGLANG_HOME SGLANG_ROOT AREAL_EXTRA_PYTHONPATH \
       PATH PYTHONPATH \
       CUDA_VISIBLE_DEVICES HIP_VISIBLE_DEVICES ROCR_VISIBLE_DEVICES \
       RAY_ADDRESS RAY_PORT RAY_TMPDIR RAY_DEDUP_LOGS RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO \
@@ -400,6 +554,7 @@ areal_save_env_snapshot() {
       HIP_H2D_DIRECT_COPY_THRESHOLD HIP_H2D_HSAAPI_COPY_THRESHOLD \
       HIP_D2H_DIRECT_COPY_THRESHOLD HIP_D2H_HSAAPI_COPY_THRESHOLD \
       TORCH_COMPILE_DISABLE TORCHDYNAMO_DISABLE HSA_KERNARG_POOL_SIZE ROC_AQL_QUEUE_SIZE \
+      GPU_MAX_HW_QUEUES HIP_KERNEL_BATCH_CEILING \
       NCCL_MAX_NCHANNELS NCCL_MIN_NCHANNELS ALLREDUCE_STREAM_WITH_COMPUTE
     do
       printf '%s=%s\n' "${name}" "${!name-}"
@@ -418,7 +573,7 @@ areal_validate_ray_worker_env() {
 
   EXPECTED_VENV="${VENV}" \
   EXPECTED_SGLANG_HOME="${SGLANG_HOME}" \
-  EXPECTED_MEGATRON_LM="${MEGATRON_HOME}/Megatron-LM" \
+  EXPECTED_MEGATRON_LM="${MEGATRON_LM_HOME}" \
   EXPECTED_AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE}" \
   EXPECTED_USE_HCU_CUSTOM_ALLREDUCE="${USE_HCU_CUSTOM_ALLREDUCE:-}" \
   EXPECTED_SGLANG_SET_CPU_AFFINITY="${SGLANG_SET_CPU_AFFINITY:-}" \
@@ -428,6 +583,8 @@ areal_validate_ray_worker_env() {
   EXPECTED_TORCHDYNAMO_DISABLE="${TORCHDYNAMO_DISABLE:-}" \
   EXPECTED_HSA_KERNARG_POOL_SIZE="${HSA_KERNARG_POOL_SIZE:-}" \
   EXPECTED_ROC_AQL_QUEUE_SIZE="${ROC_AQL_QUEUE_SIZE:-}" \
+  EXPECTED_GPU_MAX_HW_QUEUES="${GPU_MAX_HW_QUEUES:-}" \
+  EXPECTED_HIP_KERNEL_BATCH_CEILING="${HIP_KERNEL_BATCH_CEILING:-}" \
   EXPECTED_NCCL_MAX_NCHANNELS="${NCCL_MAX_NCHANNELS:-}" \
   EXPECTED_NCCL_MIN_NCHANNELS="${NCCL_MIN_NCHANNELS:-}" \
   EXPECTED_ALLREDUCE_STREAM_WITH_COMPUTE="${ALLREDUCE_STREAM_WITH_COMPUTE:-}" \
@@ -470,6 +627,8 @@ def probe():
                 "TORCHDYNAMO_DISABLE",
                 "HSA_KERNARG_POOL_SIZE",
                 "ROC_AQL_QUEUE_SIZE",
+                "GPU_MAX_HW_QUEUES",
+                "HIP_KERNEL_BATCH_CEILING",
                 "NCCL_MAX_NCHANNELS",
                 "NCCL_MIN_NCHANNELS",
                 "ALLREDUCE_STREAM_WITH_COMPUTE",
@@ -508,6 +667,8 @@ expected_selected_env = {
     "TORCHDYNAMO_DISABLE": os.environ.get("EXPECTED_TORCHDYNAMO_DISABLE", ""),
     "HSA_KERNARG_POOL_SIZE": os.environ.get("EXPECTED_HSA_KERNARG_POOL_SIZE", ""),
     "ROC_AQL_QUEUE_SIZE": os.environ.get("EXPECTED_ROC_AQL_QUEUE_SIZE", ""),
+    "GPU_MAX_HW_QUEUES": os.environ.get("EXPECTED_GPU_MAX_HW_QUEUES", ""),
+    "HIP_KERNEL_BATCH_CEILING": os.environ.get("EXPECTED_HIP_KERNEL_BATCH_CEILING", ""),
     "NCCL_MAX_NCHANNELS": os.environ.get("EXPECTED_NCCL_MAX_NCHANNELS", ""),
     "NCCL_MIN_NCHANNELS": os.environ.get("EXPECTED_NCCL_MIN_NCHANNELS", ""),
     "ALLREDUCE_STREAM_WITH_COMPUTE": os.environ.get("EXPECTED_ALLREDUCE_STREAM_WITH_COMPUTE", ""),

@@ -2,6 +2,12 @@
 # Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 # SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
+# Launcher metadata consumed by grpo/run.sh without sourcing this file.
+HCU_LAUNCHER_FAMILY=qwen3
+HCU_LAUNCHER_VARIANT=moe
+HCU_LAUNCHER_ACTOR_BACKEND=megatron
+HCU_LAUNCHER_ROLLOUT_BACKEND=sglang
+HCU_LAUNCHER_PROFILE=qwen
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export AREAL_ENV_PROFILE="${AREAL_ENV_PROFILE:-qwen}"
 # shellcheck disable=SC1091
@@ -13,10 +19,10 @@ N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-8}"
 ACTOR_BACKEND="${ACTOR_BACKEND:-megatron:d1p2t4}"
 ROLLOUT_BACKEND="${ROLLOUT_BACKEND:-sglang:d1p1t8}"
 WEIGHT_UPDATE_MODE="${WEIGHT_UPDATE_MODE:-xccl}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-qwen3-30b-a3b}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-gsm8k-qwen3-moe}"
 TRIAL_NAME="${TRIAL_NAME:-tp8-adam-bf16-smoke}"
 TIMESTAMP="${TIMESTAMP:-$(date '+%Y%m%d-%H%M%S')}"
-LOG_DIR="${LOG_DIR:-${AREAL_RUNS_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
+LOG_DIR="${LOG_DIR:-${LOG_ROOT}/${EXPERIMENT_NAME}-${TRIAL_NAME}-${TIMESTAMP}}"
 LOG_FILE="${LOG_FILE:-${LOG_DIR}/train.log}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-8}"
 VALID_BATCH_SIZE="${VALID_BATCH_SIZE:-8}"
