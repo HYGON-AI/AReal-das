@@ -117,7 +117,19 @@ class VisionRLVRWorkflow(RLVRWorkflow):
         )
 
         input_ids: list[int] = processed_input["input_ids"].tolist()[0]
-        mm_token_type_ids: list[int] = processed_input["mm_token_type_ids"].tolist()[0]
+        if "mm_token_type_ids" in processed_input:
+            # Qwen3-VL / Qwen2.5-VL
+            mm_token_type_ids: list[int] = processed_input[
+                "mm_token_type_ids"
+            ].tolist()[0]
+        elif "token_type_ids" in processed_input:
+            # Gemma3
+            mm_token_type_ids: list[int] = processed_input["token_type_ids"].tolist()[0]
+        else:
+            raise KeyError(
+                "Processor returned neither 'mm_token_type_ids' nor "
+                f"'token_type_ids'. Available keys: {list(processed_input.keys())}"
+            )
 
         byte_images = image2base64(data["images"])
         req = ModelRequest(

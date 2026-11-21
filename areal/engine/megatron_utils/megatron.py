@@ -1384,6 +1384,7 @@ _CONVERSION_FN_REGISTRY = {
     "qwen3": convert_qwen2_to_hf,
     "glm_moe_dsa": convert_glm5_to_hf,
     "deepseekv3": convert_deepseekv3_to_hf,
+    "deepseek_v3": convert_deepseekv3_to_hf,
     "bailing_moe_v2": convert_bailingmoe_to_hf,
     "bailing_moe_linear": convert_bailingmoe_to_hf,
     "bailing_hybrid": convert_bailingmoe_to_hf,
