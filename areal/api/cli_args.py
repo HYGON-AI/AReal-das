@@ -1771,6 +1771,23 @@ class SGLangConfig:
     nsa_decode_backend: str | None = None
     enable_multimodal: bool = False
     sampling_backend: str | None = None
+    fp8_gemm_backend: str = field(
+        default="auto",
+        metadata={
+            "help": "SGLang blockwise FP8 GEMM backend. "
+            "Passed to SGLang as --fp8-gemm-backend.",
+            "choices": [
+                "auto",
+                "deep_gemm",
+                "flashinfer_trtllm",
+                "flashinfer_cutlass",
+                "flashinfer_deepgemm",
+                "cutlass",
+                "triton",
+                "aiter",
+            ],
+        },
+    )
     context_length: int | None = 32768
     mem_fraction_static: float | None = 0.9
     max_running_requests: int | None = None
