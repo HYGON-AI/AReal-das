@@ -15,6 +15,8 @@ import yaml
 STEPS = 2
 BASELINE = "qwen3-4b-megatron"
 GSM8K_CONFIG = "3rdparty/AReaL/examples/math/gsm8k_grpo.yaml"
+QWEN_MOE_CASES = {"qwen35-35b-a3b-megatron", "qwen36-35b-a3b-megatron"}
+QWEN_KV_FALLBACK_CASES = QWEN_MOE_CASES | {"qwen38-27b-megatron"}
 
 
 def check_model_and_devices(model_dir, case_name, gpus):
@@ -38,6 +40,12 @@ def check_model_and_devices(model_dir, case_name, gpus):
     )
     if torch.version.hip is None or count < gpus:
         raise ValueError(f"Smoke training requires HCU PyTorch and {gpus} visible HCUs")
+    architectures = {
+        torch.cuda.get_device_properties(index).gcnArchName.partition(":")[0]
+        for index in range(gpus)
+    }
+    print(f"HCU architectures: {', '.join(sorted(architectures))}", flush=True)
+    return architectures
 
 
 def make_dataset(path):
@@ -146,12 +154,20 @@ def main():
 
     try:
         config = yaml.safe_load(Path(os.environ["CI_EXAMPLE_CONFIG"]).read_text())
-        check_model_and_devices(model_dir, case_name, gpus)
+        architectures = check_model_and_devices(model_dir, case_name, gpus)
         # Ray appends a session directory and socket name to this path.
         with tempfile.TemporaryDirectory(prefix="ray-ci-", dir="/tmp") as ray_temp_dir:
             prepare_config(
                 config, model_dir, scratch, cache, train_log, gpus, ray_temp_dir
             )
+            if "gfx938" in architectures and case_name in QWEN_KV_FALLBACK_CASES:
+                # The DTK 26.04 CI image's native SGLang KV and TopK kernels
+                # were built for gfx936. Use the validated fallback paths.
+                overrides = {"SGLANG_KVALLOC_KERNEL": "0"}
+                if case_name in QWEN_MOE_CASES:
+                    overrides["SGLANG_USE_FUSED_TOPK_SOFTMAX"] = "1"
+                config["runtime"]["env"].update(overrides)
+                print(f"SGLang overrides for gfx938: {overrides}", flush=True)
             make_dataset(scratch / "math-smoke-dataset")
             launch_config = scratch / "model-smoke-launch.yaml"
             launch_config.write_text(yaml.safe_dump(config, sort_keys=False))
