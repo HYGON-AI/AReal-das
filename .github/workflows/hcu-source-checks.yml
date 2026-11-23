@@ -3,6 +3,7 @@ name: HCU Source Checks
 on:
   workflow_dispatch:
   pull_request_target:
+    branches: [v1.0.4, v2.1.0]
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
@@ -20,10 +21,11 @@ jobs:
       labels: [self-hosted, ci]
     timeout-minutes: 45
     env:
-      CI_IMAGE: ${{ vars.HCU_BASE_IMAGE_V2 }}
-      CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE_V2 }}
-      CI_PYTHON: ${{ vars.HCU_CI_PYTHON || 'python' }}
-      CI_PYTHONPATH: /workspace:/workspace/3rdparty/AReaL:/workspace/3rdparty/Megatron-LM-das:/workspace/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:/workspace/3rdparty/Megatron-bridge-das:/workspace/3rdparty/Megatron-bridge-das/hcu_megatron_bridge/src:/workspace/3rdparty/Megatron-bridge-das/3rdparty/Megatron-Bridge/src:/opt/sglang/python:/usr/local/
+      CI_IMAGE: ${{ vars[(github.base_ref || github.ref_name) == 'v1.0.4' && 'HCU_BASE_IMAGE' || 'HCU_BASE_IMAGE_V2'] }}
+      CI_IMAGE_ARCHIVE: ${{ vars[(github.base_ref || github.ref_name) == 'v1.0.4' && 'HCU_BASE_IMAGE_ARCHIVE' || 'HCU_BASE_IMAGE_ARCHIVE_V2'] }}
+      CI_TARGET_BRANCH: ${{ github.base_ref || github.ref_name }}
+      CI_PYTHON: ${{ (github.base_ref || github.ref_name) == 'v1.0.4' && '/opt/areal-venv-py31115/bin/python' || vars.HCU_CI_PYTHON || 'python' }}
+      CI_PYTHONPATH: ${{ (github.base_ref || github.ref_name) == 'v1.0.4' && '/opt/hcu_megatron:/workspace:/opt/hcu_megatron/Megatron-Bridge/src:/opt/hcu_megatron/Megatron-LM:/opt/sglang/python:/usr/local/' || '/workspace:/workspace/3rdparty/AReaL:/workspace/3rdparty/Megatron-LM-das:/workspace/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:/workspace/3rdparty/Megatron-bridge-das:/workspace/3rdparty/Megatron-bridge-das/hcu_megatron_bridge/src:/workspace/3rdparty/Megatron-bridge-das/3rdparty/Megatron-Bridge/src:/opt/sglang/python:/usr/local/' }}
       HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
 
     steps:
@@ -31,7 +33,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test -n "${CI_IMAGE:-}" || {
-            echo "::error::Repository variable HCU_BASE_IMAGE_V2 is not configured."
+            echo "::error::HCU image variable for the selected branch is not configured."
             exit 2
           }
           if ! docker image inspect "${CI_IMAGE}" >/dev/null 2>&1; then
@@ -98,6 +100,10 @@ jobs:
 
       - name: Check Python syntax
         run: |
+          paths=(3rdparty/AReaL/areal hcu_areal examples tests)
+          if [[ "${CI_TARGET_BRANCH}" == v1.0.4 ]]; then
+            paths=(areal hcu_example)
+          fi
           docker run --rm \
             --entrypoint "${CI_PYTHON}" \
             --security-opt label=disable \
@@ -111,16 +117,24 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace" \
             -w /workspace \
             "${CI_IMAGE}" \
-            -m compileall -q 3rdparty/AReaL/areal hcu_areal examples tests
+            -m compileall -q "${paths[@]}"
 
       - name: Check HCU launcher syntax
         run: |
-          find examples tests .github/scripts -type f -name "*.sh" -print0 |
+          paths=(examples tests .github/scripts)
+          if [[ "${CI_TARGET_BRANCH}" == v1.0.4 ]]; then
+            paths=(hcu_example)
+          fi
+          find "${paths[@]}" -type f -name "*.sh" -print0 |
             xargs -0 -r -n1 bash -n
 
       - name: Check public HCU requirements policy
         run: |
-          if grep -nE '^.*\+das|^.*dtk[0-9]|^(torch|torchvision|triton|flash_attn|transformer_engine|hcu-megatron)==' requirements.txt; then
-            echo "requirements.txt must not contain internal HCU build pins."
+          requirements=requirements.txt
+          if [[ "${CI_TARGET_BRANCH}" == v1.0.4 ]]; then
+            requirements=requirements-hcu.txt
+          fi
+          if grep -nE '^.*\+das|^.*dtk[0-9]|^(torch|torchvision|triton|flash_attn|transformer_engine|hcu-megatron)==' "${requirements}"; then
+            echo "${requirements} must not contain internal HCU build pins."
             exit 1
           fi

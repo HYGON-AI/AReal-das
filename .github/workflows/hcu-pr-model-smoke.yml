@@ -5,6 +5,7 @@ name: HCU PR Model Smoke
 on:
   workflow_dispatch:
   pull_request_target:
+    branches: [v1.0.4, v2.1.0]
     types: [opened, synchronize, reopened, ready_for_review, edited]
 permissions:
   contents: read
@@ -15,14 +16,15 @@ concurrency:
 
 jobs:
   model-smoke:
-    name: Selected model smoke
+    name: ${{ (github.base_ref || github.ref_name) == 'v1.0.4' && 'Qwen3-8B GRPO smoke' || 'Selected model smoke' }}
+    if: (github.base_ref || github.ref_name) != 'v1.0.4' || (github.event.action != 'edited' && !github.event.pull_request.draft)
     runs-on:
       group: ci-general
       labels: [self-hosted, ci]
     timeout-minutes: 120
     env:
-      AREAL_CI_IMAGE: ${{ vars.HCU_BASE_IMAGE_V2 }}
-      AREAL_CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE_V2 }}
+      AREAL_CI_IMAGE: ${{ vars[(github.base_ref || github.ref_name) == 'v1.0.4' && 'HCU_BASE_IMAGE' || 'HCU_BASE_IMAGE_V2'] }}
+      AREAL_CI_IMAGE_ARCHIVE: ${{ vars[(github.base_ref || github.ref_name) == 'v1.0.4' && 'HCU_BASE_IMAGE_ARCHIVE' || 'HCU_BASE_IMAGE_ARCHIVE_V2'] }}
       AREAL_CI_MODELS_ROOT_V2: ${{ vars.AREAL_CI_MODELS_ROOT_V2 }}
       AREAL_CI_VENV: /opt/areal-venv-py31115
       AREAL_CI_SGLANG_ROOT: /opt/sglang
@@ -35,7 +37,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test -n "${AREAL_CI_IMAGE:-}" || {
-            echo "::error::Repository variable HCU_BASE_IMAGE_V2 is not configured."
+            echo "::error::HCU image variable for the selected branch is not configured."
             exit 2
           }
           if ! docker image inspect "${AREAL_CI_IMAGE}" >/dev/null 2>&1; then
@@ -64,6 +66,7 @@ jobs:
           submodules: recursive
 
       - name: Select model cases
+        if: (github.base_ref || github.ref_name) != 'v1.0.4'
         run: python3 .github/scripts/plan_model_cases.py --output ci-model-plan.tsv
 
       - name: Verify HCU configuration and image
@@ -95,6 +98,7 @@ jobs:
           fi
 
       - name: Run selected model smoke cases
+        if: (github.base_ref || github.ref_name) != 'v1.0.4'
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -177,6 +181,152 @@ jobs:
           container_name=""
           done < ci-model-plan.tsv
           exit "${failed}"
+
+      - name: Run Qwen3-8B GRPO two-step smoke test
+        if: (github.base_ref || github.ref_name) == 'v1.0.4'
+        env:
+          AREAL_CI_MODEL_PATH: ${{ vars.AREAL_CI_MODEL_PATH }}
+          AREAL_CI_MEGATRON_HOME: /opt/hcu_megatron
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${AREAL_CI_MODEL_PATH:?Set AREAL_CI_MODEL_PATH to the legacy Qwen3-8B model directory}"
+          test -r "${AREAL_CI_MODEL_PATH}/config.json"
+          mkdir -p ci-artifacts ci-runtime ci-cache
+          container_name="hcu-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-v1"
+          cleanup() {
+            docker stop -t 20 "${container_name}" >/dev/null 2>&1 || true
+            chmod -R a+rX ci-artifacts 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          docker run --rm --init --interactive --name "${container_name}" \
+            -e UMASK=000 \
+            --network=host \
+            --privileged \
+            --device=/dev/kfd \
+            --device=/dev/dri \
+            --device=/dev/mkfd \
+            --group-add video \
+            -v /opt/hyhal:/opt/hyhal:ro \
+            --cap-add=SYS_PTRACE \
+            --security-opt seccomp=unconfined \
+            --ulimit stack=-1:-1 \
+            --ulimit memlock=-1:-1 \
+            --ipc=host \
+            --shm-size=100G \
+            --user=root \
+            -v "${GITHUB_WORKSPACE}:/workspace/AReaL-das" \
+            -v "${AREAL_CI_MODEL_PATH}:/model:ro" \
+            -e AREAL_HOME=/workspace/AReaL-das \
+            -e VENV="${AREAL_CI_VENV}" \
+            -e PYTHON_BIN="${AREAL_CI_VENV}/bin/python" \
+            -e MEGATRON_HOME="${AREAL_CI_MEGATRON_HOME}" \
+            -e SGLANG_ROOT="${AREAL_CI_SGLANG_ROOT}" \
+            -e SGLANG_HOME="${AREAL_CI_SGLANG_ROOT}/python" \
+            -e MODEL_PATH=/model \
+            -e TOKENIZER_PATH=/model \
+            -e AREAL_RUNS_ROOT=/workspace/AReaL-das/ci-artifacts/runs \
+            -e AREAL_RUNTIME_ROOT=/workspace/AReaL-das/ci-runtime \
+            -e AREAL_CACHE_ROOT=/workspace/AReaL-das/ci-cache \
+            -e CI_SUCCESS_MARKER=/workspace/AReaL-das/ci-artifacts/smoke-success \
+            -e SMOKE_DATASET_PATH=/workspace/AReaL-das/ci-runtime/math-smoke-dataset \
+            -e RAY_TMPDIR=/dev/shm/ray-pr-model-smoke \
+            -e TOTAL_TRAIN_STEPS=2 \
+            -e DISABLE_HF_SAVE=true \
+            -e MAX_NEW_TOKENS=256 \
+            -e N_SAMPLES=1 \
+            -e SGLANG_MEM_FRACTION_STATIC=0.4 \
+            -e SGLANG_ROCM_USE_AITER_MOE=0 \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            -w /workspace/AReaL-das \
+            "${AREAL_CI_IMAGE}" \
+            bash -s <<'CONTAINER_SCRIPT'
+          set -Eeuo pipefail
+          trap 'chmod -R a+rwX "${AREAL_RUNS_ROOT}" "${AREAL_RUNTIME_ROOT}" "${AREAL_CACHE_ROOT}" 2>/dev/null || true' EXIT
+          test -x "${VENV}/bin/python"
+          test -d "${MEGATRON_HOME}/Megatron-LM"
+          test -d "${SGLANG_ROOT}/python/sglang"
+          test -f "${MODEL_PATH}/config.json"
+          source "${VENV}/bin/activate"
+          python - <<'PY'
+          import json
+          import os
+          import shutil
+
+          import torch
+          from datasets import Dataset, DatasetDict
+
+          with open("/model/config.json", encoding="utf-8") as config_file:
+              config = json.load(config_file)
+          assert config.get("model_type") == "qwen3", config.get("model_type")
+          assert config.get("hidden_size") == 4096, config.get("hidden_size")
+          assert config.get("num_hidden_layers") == 36, config.get("num_hidden_layers")
+
+          count = torch.cuda.device_count()
+          print(f"torch={torch.__version__}, hip={torch.version.hip}, devices={count}")
+          assert torch.version.hip is not None, "HCU/ROCm PyTorch is required"
+          assert count >= 8, "Qwen3-8B smoke test requires eight visible HCUs"
+
+          dataset_path = os.environ["SMOKE_DATASET_PATH"]
+          shutil.rmtree(dataset_path, ignore_errors=True)
+          samples = [
+              ("What is 1 + 1?", "2"),
+              ("What is 3 + 4?", "7"),
+              ("What is 9 - 5?", "4"),
+              ("What is 6 times 3?", "18"),
+              ("What is 20 divided by 4?", "5"),
+              ("What is 7 + 8?", "15"),
+              ("What is 12 - 7?", "5"),
+              ("What is 5 times 5?", "25"),
+          ]
+          records = [
+              {
+                  "messages": [
+                      {
+                          "role": "user",
+                          "content": question
+                          + "\nPlease put your final answer within \\boxed{}.",
+                      }
+                  ],
+                  "answer": f"#### {answer}",
+              }
+              for question, answer in samples
+          ]
+          dataset = Dataset.from_list(records)
+          DatasetDict(
+              {"train": dataset, "test": dataset.select(range(4))}
+          ).save_to_disk(dataset_path)
+          PY
+          smoke_config="${AREAL_RUNTIME_ROOT}/model-smoke-grpo.yaml"
+          sed "s|path: openai/gsm8k|path: ${SMOKE_DATASET_PATH}|g" \
+            "${AREAL_HOME}/examples/math/gsm8k_grpo.yaml" >"${smoke_config}"
+          test "$(grep -Fc "path: ${SMOKE_DATASET_PATH}" "${smoke_config}")" -eq 2
+          export GRPO_CONFIG=ci-runtime/model-smoke-grpo.yaml
+          cd "${AREAL_HOME}/hcu_example/grpo"
+          bash run.sh \
+            --model=qwen3_8b \
+            --variant=dense \
+            --backend=megatron \
+            --rollout=sglang \
+            --model-path="${MODEL_PATH}" \
+            --tokenizer-path="${TOKENIZER_PATH}" \
+            --nodes=1 \
+            --gpus-per-node=8 \
+            --restart-ray
+
+          train_log="$(find "${AREAL_RUNS_ROOT}" -type f -name train.log -print -quit)"
+          test -n "${train_log}"
+          test -s "${train_log}"
+          completed_steps="$(grep -Ec 'Train step [0-9]+/[0-9]+ done\.' "${train_log}")"
+          test "${completed_steps}" -eq "${TOTAL_TRAIN_STEPS}"
+          grep -Eq "Train step ${TOTAL_TRAIN_STEPS}/[0-9]+ done\." "${train_log}"
+          printf 'Qwen3-8B GRPO two-step smoke test completed.\n' >"${CI_SUCCESS_MARKER}"
+          CONTAINER_SCRIPT
+          test -s ci-artifacts/smoke-success
+
       - name: Upload model smoke logs
         if: always()
         continue-on-error: true

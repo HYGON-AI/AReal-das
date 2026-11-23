@@ -5,6 +5,7 @@ name: HCU Pytest
 on:
   workflow_dispatch:
   pull_request_target:
+    branches: [v1.0.4, v2.1.0]
     types: [opened, synchronize, reopened, ready_for_review]
 permissions:
   contents: read
@@ -21,10 +22,11 @@ jobs:
       labels: [self-hosted, ci]
     timeout-minutes: 45
     env:
-      CI_IMAGE: ${{ vars.HCU_BASE_IMAGE_V2 }}
-      CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE_V2 }}
-      CI_PYTHON: ${{ vars.HCU_CI_PYTHON || 'python' }}
-      CI_PYTHONPATH: /workspace:/workspace/3rdparty/AReaL:/workspace/3rdparty/Megatron-LM-das:/workspace/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:/workspace/3rdparty/Megatron-bridge-das:/workspace/3rdparty/Megatron-bridge-das/hcu_megatron_bridge/src:/workspace/3rdparty/Megatron-bridge-das/3rdparty/Megatron-Bridge/src:/opt/sglang/python:/usr/local/
+      CI_IMAGE: ${{ vars[(github.base_ref || github.ref_name) == 'v1.0.4' && 'HCU_BASE_IMAGE' || 'HCU_BASE_IMAGE_V2'] }}
+      CI_IMAGE_ARCHIVE: ${{ vars[(github.base_ref || github.ref_name) == 'v1.0.4' && 'HCU_BASE_IMAGE_ARCHIVE' || 'HCU_BASE_IMAGE_ARCHIVE_V2'] }}
+      CI_TARGET_BRANCH: ${{ github.base_ref || github.ref_name }}
+      CI_PYTHON: ${{ (github.base_ref || github.ref_name) == 'v1.0.4' && '/opt/areal-venv-py31115/bin/python' || vars.HCU_CI_PYTHON || 'python' }}
+      CI_PYTHONPATH: ${{ (github.base_ref || github.ref_name) == 'v1.0.4' && '/opt/hcu_megatron:/workspace:/opt/hcu_megatron/Megatron-Bridge/src:/opt/hcu_megatron/Megatron-LM:/opt/sglang/python:/usr/local/' || '/workspace:/workspace/3rdparty/AReaL:/workspace/3rdparty/Megatron-LM-das:/workspace/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:/workspace/3rdparty/Megatron-bridge-das:/workspace/3rdparty/Megatron-bridge-das/hcu_megatron_bridge/src:/workspace/3rdparty/Megatron-bridge-das/3rdparty/Megatron-Bridge/src:/opt/sglang/python:/usr/local/' }}
       HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
@@ -37,7 +39,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test -n "${CI_IMAGE:-}" || {
-            echo "::error::Repository variable HCU_BASE_IMAGE_V2 is not configured."
+            echo "::error::HCU image variable for the selected branch is not configured."
             exit 2
           }
           if ! docker image inspect "${CI_IMAGE}" >/dev/null 2>&1; then
@@ -67,47 +69,48 @@ jobs:
       - name: Run public CPU unit tests in CI image
         run: |
           docker image inspect "${CI_IMAGE}" >/dev/null
-          docker run --rm \
-            --entrypoint "${CI_PYTHON}" \
-            --security-opt label=disable \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -e USER=github \
-            -e LOGNAME=github \
-            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
-            -e PYTHONPATH="${CI_PYTHONPATH}" \
-            -e HF_HUB_OFFLINE \
-            -e TRANSFORMERS_OFFLINE \
-            -e WANDB_MODE \
-            -e PYTHONUTF8 \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            -w /workspace \
+          docker_args=(
+            --rm --security-opt label=disable --user "$(id -u):$(id -g)"
+            -e HOME=/tmp -e USER=github -e LOGNAME=github
+            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" -e PYTHONPATH="${CI_PYTHONPATH}"
+            -e HF_HUB_OFFLINE -e TRANSFORMERS_OFFLINE -e WANDB_MODE -e PYTHONUTF8
+            -v "${GITHUB_WORKSPACE}:/workspace" -w /workspace
+          )
+          docker run "${docker_args[@]}" --entrypoint "${CI_PYTHON}" -e CI_TARGET_BRANCH \
             "${CI_IMAGE}" -c '
+          import os
           import sys
           import torch
           print("python:", sys.version)
           print("torch:", torch.__version__)
           print("HCU available:", torch.cuda.is_available())
           assert sys.version_info >= (3, 11)
+          if os.environ["CI_TARGET_BRANCH"] == "v1.0.4":
+              assert sys.version_info[:2] == (3, 11)
           assert not torch.cuda.is_available(), "This workflow must not expose HCU devices"
           '
-          docker run --rm \
-            --entrypoint /bin/bash \
-            --security-opt label=disable \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -e USER=github \
-            -e LOGNAME=github \
-            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
-            -e PYTHONPATH="${CI_PYTHONPATH}" \
-            -e HF_HUB_OFFLINE \
-            -e TRANSFORMERS_OFFLINE \
-            -e WANDB_MODE \
-            -e PYTHONUTF8 \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            -w /workspace \
-            -e HCU_CI_PYTHON="${CI_PYTHON}" \
-            "${CI_IMAGE}" .github/scripts/run_hcu_unit_tests.sh
+          if [[ "${CI_TARGET_BRANCH}" == v1.0.4 ]]; then
+            docker run "${docker_args[@]}" --entrypoint "${CI_PYTHON}" "${CI_IMAGE}" -m pytest \
+              -q --maxfail=1 --durations=20 \
+              -o cache_dir=/tmp/pytest-cache --junitxml=pytest-cpu.xml \
+              -m "not slow and not gpu and not multi_gpu and not sglang and not vllm and not integration" \
+              tests/test_allocation_mode.py \
+              tests/test_adv_norm_config.py \
+              tests/test_dynamic_import.py \
+              tests/test_functional.py \
+              tests/test_math_verify_reward.py \
+              tests/test_network_ipv6_utils.py \
+              tests/test_ppo_stats.py \
+              tests/test_prox_approx.py \
+              tests/test_rejection_sampling.py \
+              tests/test_utils.py \
+              tests/test_workflow_detection.py \
+              tests/test_wrapper.py
+          else
+            docker run "${docker_args[@]}" --entrypoint /bin/bash \
+              -e HCU_CI_PYTHON="${CI_PYTHON}" \
+              "${CI_IMAGE}" .github/scripts/run_hcu_unit_tests.sh
+          fi
 
       - name: Upload pytest report
         if: always()
