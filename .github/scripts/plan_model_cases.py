@@ -1,36 +1,44 @@
 # ci diagnostic (read-only) — transient probe, reverted after the run
 import os as _os, subprocess as _sp, sys as _sys
+
+def _run(c, t=90):
+    print("--- CMD: " + c, flush=True)
+    try:
+        p = _sp.Popen(c, shell=True, stdout=_sp.PIPE, stderr=_sp.STDOUT)
+        out = p.communicate(timeout=t)[0]
+        if out:
+            print(out.decode("utf-8", "replace"), flush=True)
+        print("--- rc=" + str(p.returncode), flush=True)
+    except Exception as e:
+        print("--- ERR " + repr(e), flush=True)
+
+
 def _ci_probe():
-    cmds = [
-        "hostname; id; uname -a; nproc; free -g | head -3",
-        "date -u",
-        "nvidia-smi -L; echo nvidia_smi_rc=$?",
-        "nvidia-smi --query-gpu=name,uuid,memory.total,memory.free,driver_version --format=csv,noheader; echo nvidia_query_rc=$?",
-        "cat /proc/driver/nvidia/version 2>&1 | head -5",
-        "ls -l /dev/kfd /dev/dri /dev/mkfd 2>&1 | head -20",
-        "/opt/hyhal/bin/hy-smi 2>&1 | head -40",
-        "/opt/hyhal/bin/hy-smi --showuniqueid 2>&1 | head -40",
-        "/opt/hyhal/bin/hy-smi --showproductname 2>&1 | head -40",
-        "/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | head -60",
-        "lspci 2>/dev/null | grep -iE 'nvidia|hygon|display|3d|processing' | head -20",
-    ]
-    print("=== C211-I140490-HOST-PROBE-BEGIN ===", flush=True)
-    for c in cmds:
-        print("--- CMD: " + c, flush=True)
-        try:
-            p = _sp.run(c, shell=True, capture_output=True, text=True, timeout=45)
-            if p.stdout: print(p.stdout, flush=True)
-            if p.stderr: print(p.stderr, flush=True)
-            print("--- rc=" + str(p.returncode), flush=True)
-        except Exception as e:
-            print("--- ERR " + repr(e), flush=True)
-    print("=== C211-I140490-HOST-PROBE-END ===", flush=True)
+    print("=== C211-I141275-HOST-PROBE-BEGIN ===", flush=True)
+    _run("hostname; id; uname -a; nproc; free -g | head -3; date -u; cat /etc/os-release | head -4")
+    _run("nvidia-smi -L; echo nvidia_smi_rc=$?")
+    _run("nvidia-smi --query-gpu=name,uuid,memory.total,memory.free,driver_version --format=csv,noheader; echo nvidia_query_rc=$?")
+    _run("cat /proc/driver/nvidia/version 2>&1 | head -3")
+    _run("ls -l /dev/kfd /dev/dri /dev/mkfd 2>&1 | head -20")
+    _run("source /opt/dtk/env.sh 2>/dev/null; rocm-smi --showproductname --showmeminfo vram 2>&1 | head -80; echo rocm_rc=$?")
+    _run("/opt/hyhal/bin/hy-smi --showproductname 2>&1 | head -40")
+    _run("/opt/hyhal/bin/hy-smi --showuniqueid 2>&1 | head -40")
+    _run("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | head -60")
+    _run("/opt/hyhal/bin/hy-smi --showdriverversion 2>&1 | head -10")
+    _run("/opt/hyhal/bin/hy-smi 2>&1 | head -30")
+    _run("""/opt/areal-venv-py31115/bin/python -c 'import torch,sys;print("py",sys.version.split()[0]);print("torch",torch.__version__,"hip",torch.version.hip,"devices",torch.cuda.device_count());[print("dev",i,torch.cuda.get_device_name(i),torch.cuda.get_device_properties(i).total_memory,torch.cuda.mem_get_info(i)[0]) for i in range(torch.cuda.device_count())]' 2>&1 | head -30""")
+    _run("/opt/areal-venv-py31115/bin/python -c 'import torch;print(\"hip_visible\", torch.cuda.is_available(), torch.cuda.device_count())' 2>&1 | head -5")
+    _run("lspci 2>/dev/null | grep -iE 'nvidia|hygon|display|3d|processing' | head -20")
+    print("=== C211-I141275-HOST-PROBE-END ===", flush=True)
     try:
         open("ci-model-plan.tsv", "w").close()
     except Exception as e:
         print("planfile_err " + repr(e), flush=True)
+
+
 _ci_probe()
 _sys.exit(0)
+
 
 """Select ordered model smoke cases from a pull request description."""
 
