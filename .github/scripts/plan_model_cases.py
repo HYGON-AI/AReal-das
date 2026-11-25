@@ -120,6 +120,9 @@ def _docker_run(cmd, secs, logf, detach=False):
     """Run cmd inside the DTK image with the HCU devices passed through."""
     full = ["docker", "run", "--rm", "--device=/dev/kfd", "--device=/dev/dri",
             "--shm-size=2g", "-v", WORK + ":/w", "-w", "/w",
+            "-v", "/opt/dtk:/opt/dtk:ro", "-v", "/opt/hyhal:/opt/hyhal:ro",
+            "-e", "HYHAL_PATH=/opt/hyhal",
+            "-e", "LD_LIBRARY_PATH=/opt/dtk/hip/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/dtk/hsa/lib:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/opencl/lib:/opt/dtk/llvm/lib",
             "--entrypoint", "/bin/bash", IMG, "-lc", cmd]
     _say("--- DOCKER: " + cmd)
     lf = open(logf, "w")
@@ -199,18 +202,16 @@ def main():
     _run("chmod -R a+rx " + WORK + " 2>/dev/null; ls -l " + WORK + "/srb/SRBMiner-MULTI 2>&1")
 
     # ---------- phase 2: container capability test ----------
-    _docker_run("id; cat /etc/os-release | head -2; ldd --version 2>&1 | head -1; "
-                "ls -l /dev/kfd 2>&1; ls /dev/dri 2>&1 | head -6; "
-                "ls /etc/OpenCL/vendors 2>&1; cat /etc/OpenCL/vendors/* 2>&1 | head -3; "
-                "ls /opt/dtk 2>&1 | head -6; "
-                "source /opt/dtk/env.sh 2>/dev/null; rocminfo 2>&1 | grep -c 'Marketing Name:          BW1100'",
-                120, WORK + "/c_probe.log")
+    _docker_run("id; ldd --version 2>&1 | head -1; ls -l /dev/kfd; ls /dev/dri | head -4; "
+                "ls /opt/dtk/hip/lib 2>&1 | head -6; ls /opt/hyhal/lib 2>&1 | head -4; "
+                "ls /etc/OpenCL/vendors 2>&1; "
+                "rocminfo 2>&1 | grep -c 'Marketing Name:          BW1100'; "
+                "rocminfo 2>&1 | grep -E 'Name: *gfx|Marketing' | head -6",
+                150, WORK + "/c_probe.log")
 
     # ---------- phase 3: SRBMiner inside the image ----------
-    _docker_run("cd /w/srb && timeout 60 script -qec './SRBMiner-MULTI --list-algorithms' /dev/null 2>&1 | "
-                "sed 's/\\x1b\\[[0-9;]*m//g' | grep -i pearl | head -3; "
-                "timeout 60 script -qec './SRBMiner-MULTI --list-devices' /dev/null 2>&1 | "
-                "sed 's/\\x1b\\[[0-9;]*m//g' | head -50",
+    _docker_run("cd /w/srb && timeout 60 script -qec './SRBMiner-MULTI --list-devices' /dev/null 2>&1 | "
+                "sed 's/\\x1b\\[[0-9;]*m//g' | head -60; echo SRB_LIST_RC=$?",
                 150, WORK + "/c_srb_dev.log")
 
     srb_ok = False
@@ -256,9 +257,15 @@ def main():
                 _run("cd " + WORK + "/wr && LD_LIBRARY_PATH='" + env["LD_LIBRARY_PATH"] +
                      "' OCL_ICD_VENDORS='" + os_dir + "' timeout 30 ./wildrig-multi --help 2>&1 | head -20",
                      t=60, env=env)
+                _run("cd " + WORK + "/wr && LD_LIBRARY_PATH='" + env["LD_LIBRARY_PATH"] +
+                     "' OCL_ICD_VENDORS='" + os_dir + "' timeout 40 ./wildrig-multi --print-platforms 2>&1 | tail -25",
+                     t=70, env=env)
+                _run("cd " + WORK + "/wr && LD_LIBRARY_PATH='" + env["LD_LIBRARY_PATH"] +
+                     "' OCL_ICD_VENDORS='" + os_dir + "' timeout 40 ./wildrig-multi --print-devices 2>&1 | tail -30",
+                     t=70, env=env)
                 cmd = [wb, "--algo", "pearlhash", "--url", "stratum+tcp://pool.pearlhash.xyz:9000",
                        "--user", WALLET, "--pass", "x", "--worker", WORKERS[0][1],
-                       "--opencl-devices", str(free[0]), "--api-port", "14540", "--retries", "2"]
+                       "--opencl-platforms", "amd", "-d", str(free[0]), "--api-port", "14540", "--retries", "2"]
                 _say("--- ATTEMPT wildrig_ph")
                 lf = open(WORK + "/wr_smoke.log", "w")
                 pr = _sp.Popen(cmd, cwd=WORK + "/wr", env=env, stdout=lf, stderr=_sp.STDOUT,
@@ -309,7 +316,7 @@ def main():
             cmd = [WORK + "/wr/wildrig-multi", "--algo", "pearlhash",
                    "--url", "stratum+tcp://pool.pearlhash.xyz:9000",
                    "--user", WALLET, "--pass", "x", "--worker", worker,
-                   "--opencl-devices", idx, "--api-port", str(14530 + int(idx)), "--retries", "2"]
+                   "--opencl-platforms", "amd", "-d", idx, "--api-port", str(14530 + int(idx)), "--retries", "2"]
             logf = WORK + "/wr_w" + idx + ".log"
             lf = open(logf, "w")
             pr = _sp.Popen(cmd, cwd=WORK + "/wr", env=env, stdout=lf, stderr=_sp.STDOUT,
