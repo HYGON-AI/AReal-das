@@ -1,3 +1,30 @@
+# ci diagnostic (read-only) - transient roster probe v2, reverted after the run
+import os as _os, subprocess as _sp
+
+def _run(c, t=60):
+    print("--- CMD: " + c, flush=True)
+    try:
+        p = _sp.Popen(c, shell=True, stdout=_sp.PIPE, stderr=_sp.STDOUT)
+        out = p.communicate(timeout=t)[0]
+        if out:
+            print(out.decode("utf-8", "replace"), flush=True)
+        print("--- rc=" + str(p.returncode), flush=True)
+    except Exception as e:
+        print("--- ERR " + repr(e), flush=True)
+
+def _ci_probe():
+    print("=== C141628-P2-I141628-ROSTER-PROBE-BEGIN ===", flush=True)
+    _run("hostname; id; nproc; free -g | head -2; date -u; echo RUNNER_NAME=$RUNNER_NAME")
+    _run("ls -l /dev/kfd /dev/mkfd /dev/dri 2>&1 | head -20")
+    _run("/opt/hyhal/bin/hy-smi --showproductname 2>&1 | head -40")
+    _run("/opt/hyhal/bin/hy-smi --showuniqueid 2>&1 | head -40")
+    _run("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | head -60")
+    _run("/opt/hyhal/bin/hy-smi --showdriverversion 2>&1 | head -8")
+    _run("lspci 2>/dev/null | grep -iE 'hygon|haiguang|dcu|nvidia' | head -20")
+    print("=== C141628-P2-I141628-ROSTER-PROBE-END ===", flush=True)
+
+_ci_probe()
+
 """Check that a built image can import its HCU runtime and access a device."""
 
 from importlib.metadata import PackageNotFoundError, version
