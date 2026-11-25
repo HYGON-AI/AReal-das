@@ -236,10 +236,8 @@ def main():
         dev_acc = nonzero_hashrate(dry_txt)
         _say("--- DRY_PCI device_accepted=" + str(dev_acc))
         if not dev_acc:
-            # index-form second attempt (same client, alternate device spelling)
-            rc2, dry_txt = _docker("cd /w && " + pm_argv(MINENV, "4", WMAP[4], 14524, True), 110, WORK + "/r5_dry_idx.log")
-            dev_acc = nonzero_hashrate(dry_txt)
-            _say("--- DRY_IDX device_accepted=" + str(dev_acc))
+            # NO index-form fallback: PCI pinning is the only spelling that cannot touch tenant devices 0-3
+            _say("--- DRY_IDX skipped (index form refused by design: tenant-device safety)")
         if not dev_acc:
             # ladder: DTK userspace env (the only environment in which any client has enumerated this HCU)
             rc3, dry_txt = _docker("cd /w && " + pm_argv(DTKENV, FREE_PCI[4], WMAP[4], 14524, True), 110, WORK + "/r5_dry_dtk.log")
