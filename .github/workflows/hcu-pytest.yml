@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pytest-cpu-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: pytest-cpu-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name }}
   cancel-in-progress: true
 
 jobs:
@@ -60,7 +60,8 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
           submodules: recursive
 
       - name: Run public CPU unit tests in CI image
