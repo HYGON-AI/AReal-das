@@ -9,26 +9,21 @@ on:
         description: "Existing HCU runtime image (overrides repository variable HCU_BASE_IMAGE_V2)"
         required: false
         type: string
-  pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - ".gitmodules"
-      - "3rdparty/**"
-      - "hcu_areal/**"
-      - ".github/scripts/check_image.py"
-      - "examples/**"
-      - "requirements.txt"
-      - ".github/workflows/hcu-image-test.yml"
+  pull_request:
+    types: [labeled]
 permissions:
   contents: read
 
 concurrency:
-  group: hcu-image-test-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: hcu-image-test-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || github.event_name }}
   cancel-in-progress: true
 
 jobs:
   image-test:
     # The ci-general runner group provides Docker and HCU access.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.label.name == 'run-ci' && !github.event.pull_request.draft) }}
     runs-on:
       group: ci-general
       labels: [self-hosted, ci]
@@ -64,8 +59,8 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
-          allow-unsafe-pr-checkout: true
+          ref: ${{ github.sha }}
+          persist-credentials: false
           submodules: recursive
 
       - name: Check HCU runner prerequisites
