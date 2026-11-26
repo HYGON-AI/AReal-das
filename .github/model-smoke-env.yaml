@@ -1,0 +1,23 @@
+# Matching rules override runtime.env in the rendered CI config. Later matches
+# take precedence. Omit architecture or cases to match all values for that field.
+"26.10":
+  - env:
+      PYTORCH_ALLOC_CONF: "expandable_segments:False"
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:False"
+      NCCL_P2P_DISABLE: "1"
+
+"26.04":
+  # Use the verified KV and TopK paths on BW1100 (gfx938) with the older image.
+  - architecture: gfx938
+    cases:
+      - qwen35-35b-a3b-megatron
+      - qwen36-35b-a3b-megatron
+      - qwen38-27b-megatron
+    env:
+      SGLANG_KVALLOC_KERNEL: "0"
+  - architecture: gfx938
+    cases:
+      - qwen35-35b-a3b-megatron
+      - qwen36-35b-a3b-megatron
+    env:
+      SGLANG_USE_FUSED_TOPK_SOFTMAX: "1"
