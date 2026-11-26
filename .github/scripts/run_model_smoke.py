@@ -138,8 +138,6 @@ def main():
     train_log.unlink(missing_ok=True)
     for key in ("CUDA_VISIBLE_DEVICES", "HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES"):
         os.environ.pop(key, None)
-    if case_name == BASELINE:
-        os.environ["SGLANG_ROCM_USE_AITER_MOE"] = "0"
     os.environ.update(
         HF_DATASETS_OFFLINE="1", HF_HUB_OFFLINE="1", WANDB_MODE="disabled"
     )
