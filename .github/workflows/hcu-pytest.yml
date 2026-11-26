@@ -4,8 +4,8 @@ name: HCU Pytest
 
 on:
   workflow_dispatch:
-  pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request:
+    types: [labeled]
 permissions:
   contents: read
 
@@ -19,6 +19,7 @@ jobs:
     runs-on:
       group: ci-general
       labels: [self-hosted, ci]
+    if: ${{ github.event.label.name == 'run-ci' && !github.event.pull_request.draft }}
     timeout-minutes: 45
     env:
       CI_IMAGE: ${{ vars.HCU_BASE_IMAGE_V2 }}
@@ -61,7 +62,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
-          allow-unsafe-pr-checkout: true
           submodules: recursive
 
       - name: Run public CPU unit tests in CI image
