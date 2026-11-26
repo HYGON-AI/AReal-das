@@ -3,7 +3,6 @@
 name: HCU Pytest
 
 on:
-  workflow_dispatch:
   pull_request:
     types: [labeled]
 permissions:
