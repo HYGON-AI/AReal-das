@@ -106,7 +106,7 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace/AReal-das:ro" \
             -w /workspace/AReal-das \
             "${BASE_IMAGE}" \
-            -lc '
+            -c '
               set -e
               source /opt/dtk/env.sh
               export PYTHONPATH="/opt/hyhal/share/smi${PYTHONPATH:+:${PYTHONPATH}}"
@@ -122,7 +122,7 @@ jobs:
             -e PYTHONPYCACHEPREFIX=/tmp/hcu-ci-pycache \
             -v "${GITHUB_WORKSPACE}:/workspace/AReal-das:ro" \
             -w /workspace/AReal-das \
-            "${BASE_IMAGE}" -lc '
+            "${BASE_IMAGE}" -c '
             set -e
             source /opt/dtk/env.sh
             prepared_pythonpath="$(python -m hcu_areal.launch --pythonpath)"
