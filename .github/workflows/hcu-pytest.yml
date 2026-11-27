@@ -15,48 +15,28 @@ concurrency:
 jobs:
   unit:
     name: Public CPU unit tests
-    runs-on:
-      group: ci-general
-      labels: [self-hosted, ci]
+    # CPU-only Kubernetes runner; the job container must not see HCU devices.
+    runs-on: hygon-cpu
     if: ${{ github.event.label.name == 'run-ci' && !github.event.pull_request.draft }}
     timeout-minutes: 45
+    container:
+      image: ${{ vars.HCU_BASE_IMAGE_V2 }}
+    defaults:
+      run:
+        shell: bash
     env:
-      CI_IMAGE: ${{ vars.HCU_BASE_IMAGE_V2 }}
-      CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE_V2 }}
       CI_PYTHON: ${{ vars.HCU_CI_PYTHON || 'python' }}
-      CI_PYTHONPATH: /workspace:/workspace/3rdparty/AReaL:/workspace/3rdparty/Megatron-LM-das:/workspace/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:/workspace/3rdparty/Megatron-bridge-das:/workspace/3rdparty/Megatron-bridge-das/hcu_megatron_bridge/src:/workspace/3rdparty/Megatron-bridge-das/3rdparty/Megatron-Bridge/src:/opt/sglang/python:/usr/local/
-      HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
+      HCU_CI_PYTHON: ${{ vars.HCU_CI_PYTHON || 'python' }}
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/3rdparty/AReaL:${{ github.workspace }}/3rdparty/Megatron-LM-das:${{ github.workspace }}/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:${{ github.workspace }}/3rdparty/Megatron-bridge-das:${{ github.workspace }}/3rdparty/Megatron-bridge-das/hcu_megatron_bridge/src:${{ github.workspace }}/3rdparty/Megatron-bridge-das/3rdparty/Megatron-Bridge/src:/opt/sglang/python:/usr/local/
+      LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       WANDB_MODE: disabled
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PYTHONUTF8: "1"
+      HOME: /tmp
 
     steps:
-      - name: Prepare CI image and workspace
-        run: |
-          set -Eeuo pipefail
-          test -n "${CI_IMAGE:-}" || {
-            echo "::error::Repository variable HCU_BASE_IMAGE_V2 is not configured."
-            exit 2
-          }
-          if ! docker image inspect "${CI_IMAGE}" >/dev/null 2>&1; then
-            test -r "${CI_IMAGE_ARCHIVE}" || {
-              echo "::error::Docker image ${CI_IMAGE} is unavailable and archive ${CI_IMAGE_ARCHIVE} is not readable."
-              exit 2
-            }
-            echo "Loading ${CI_IMAGE} from ${CI_IMAGE_ARCHIVE}"
-            docker load -i "${CI_IMAGE_ARCHIVE}"
-          fi
-          mkdir -p "${GITHUB_WORKSPACE}"
-          docker run --rm \
-            --entrypoint /bin/bash \
-            -e HOST_UID="$(id -u)" \
-            -e HOST_GID="$(id -g)" \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            "${CI_IMAGE}" \
-            -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
-
       - name: Check out source
         uses: actions/checkout@v6
         with:
@@ -64,25 +44,9 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Run public CPU unit tests in CI image
+      - name: Verify this job has no HCU devices
         run: |
-          docker image inspect "${CI_IMAGE}" >/dev/null
-          docker run --rm \
-            --entrypoint "${CI_PYTHON}" \
-            --security-opt label=disable \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -e USER=github \
-            -e LOGNAME=github \
-            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
-            -e PYTHONPATH="${CI_PYTHONPATH}" \
-            -e HF_HUB_OFFLINE \
-            -e TRANSFORMERS_OFFLINE \
-            -e WANDB_MODE \
-            -e PYTHONUTF8 \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            -w /workspace \
-            "${CI_IMAGE}" -c '
+          "${CI_PYTHON}" -c '
           import sys
           import torch
           print("python:", sys.version)
@@ -91,23 +55,10 @@ jobs:
           assert sys.version_info >= (3, 11)
           assert not torch.cuda.is_available(), "This workflow must not expose HCU devices"
           '
-          docker run --rm \
-            --entrypoint /bin/bash \
-            --security-opt label=disable \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -e USER=github \
-            -e LOGNAME=github \
-            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
-            -e PYTHONPATH="${CI_PYTHONPATH}" \
-            -e HF_HUB_OFFLINE \
-            -e TRANSFORMERS_OFFLINE \
-            -e WANDB_MODE \
-            -e PYTHONUTF8 \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            -w /workspace \
-            -e HCU_CI_PYTHON="${CI_PYTHON}" \
-            "${CI_IMAGE}" .github/scripts/run_hcu_unit_tests.sh
+
+      - name: Run public CPU unit tests
+        run: |
+          bash .github/scripts/run_hcu_unit_tests.sh
 
       - name: Upload pytest report
         if: always()
