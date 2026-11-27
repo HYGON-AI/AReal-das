@@ -19,13 +19,16 @@ jobs:
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
           (github.event.label.name == 'run-ci' && !github.event.pull_request.draft) }}
-    runs-on:
-      group: ci-general
-      labels: [self-hosted, ci]
+    # Dedicated Kubernetes runner with eight HCU devices and the shared model
+    # directory already mounted. No nested docker is used.
+    runs-on: hygon-bw1100-8card
     timeout-minutes: 120
+    container:
+      image: ${{ vars.HCU_BASE_IMAGE_V2 }}
+    defaults:
+      run:
+        shell: bash
     env:
-      AREAL_CI_IMAGE: ${{ vars.HCU_BASE_IMAGE_V2 }}
-      AREAL_CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE_V2 }}
       AREAL_CI_MODELS_ROOT_V2: ${{ vars.AREAL_CI_MODELS_ROOT_V2 }}
       AREAL_CI_VENV: /opt/areal-venv-py31115
       AREAL_CI_SGLANG_ROOT: /opt/sglang
@@ -33,31 +36,6 @@ jobs:
       PYTHONUTF8: "1"
 
     steps:
-      - name: Prepare CI image and workspace
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          test -n "${AREAL_CI_IMAGE:-}" || {
-            echo "::error::Repository variable HCU_BASE_IMAGE_V2 is not configured."
-            exit 2
-          }
-          if ! docker image inspect "${AREAL_CI_IMAGE}" >/dev/null 2>&1; then
-            test -r "${AREAL_CI_IMAGE_ARCHIVE}" || {
-              echo "::error::Docker image ${AREAL_CI_IMAGE} is unavailable and archive ${AREAL_CI_IMAGE_ARCHIVE} is not readable."
-              exit 2
-            }
-            echo "Loading ${AREAL_CI_IMAGE} from ${AREAL_CI_IMAGE_ARCHIVE}"
-            docker load -i "${AREAL_CI_IMAGE_ARCHIVE}"
-          fi
-          mkdir -p "${GITHUB_WORKSPACE}"
-          docker run --rm \
-            --entrypoint /bin/bash \
-            -e HOST_UID="$(id -u)" \
-            -e HOST_GID="$(id -g)" \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            "${AREAL_CI_IMAGE}" \
-            -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
-
       - name: Check out source
         uses: actions/checkout@v6
         with:
@@ -68,12 +46,11 @@ jobs:
       - name: Select model cases
         run: python3 .github/scripts/plan_model_cases.py --output ci-model-plan.tsv
 
-      - name: Verify HCU configuration and image
-        shell: bash
+      - name: Verify HCU configuration
         run: |
           set -Eeuo pipefail
           for name in \
-            AREAL_CI_IMAGE \
+            AREAL_CI_MODELS_ROOT_V2 \
             AREAL_CI_VENV \
             AREAL_CI_SGLANG_ROOT
           do
@@ -86,7 +63,6 @@ jobs:
           test -e /dev/dri
           test -e /dev/mkfd
           test -x /opt/hyhal/bin/hy-smi
-          docker image inspect "${AREAL_CI_IMAGE}" >/dev/null
           timeout 15 /opt/hyhal/bin/hy-smi
           timeout 15 /opt/hyhal/bin/hy-smi --showmeminfo vram
           device_processes="$(timeout 15 /opt/hyhal/bin/hy-smi --showpids)"
@@ -97,7 +73,6 @@ jobs:
           fi
 
       - name: Run selected model smoke cases
-        shell: bash
         run: |
           set -Eeuo pipefail
           if [[ "${AREAL_CI_MODELS_ROOT_V2}" != /* ]] ||
@@ -107,16 +82,6 @@ jobs:
             exit 2
           fi
           mkdir -p ci-artifacts ci-runtime ci-cache
-          container_name=""
-          cleanup() {
-            if [[ -n "${container_name}" ]]; then
-              docker stop -t 20 "${container_name}" >/dev/null 2>&1 || true
-            fi
-            chmod -R a+rX ci-artifacts 2>/dev/null || true
-          }
-          trap cleanup EXIT
-          trap 'exit 130' INT
-          trap 'exit 143' TERM
 
           failed=0
           while IFS=$'\t' read -r case_name case_config model_relative_path case_gpus; do
@@ -128,46 +93,23 @@ jobs:
           fi
           mkdir -p "ci-artifacts/${case_name}" "ci-runtime/${case_name}" "ci-cache/${case_name}"
           echo "Running ${case_name} using ${case_config}"
-          container_name="hcu-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${case_name}"
-          if docker run --rm --init --name "${container_name}" \
-            --entrypoint /bin/bash \
-            -e UMASK=000 \
-            --network=host \
-            --privileged \
-            --device=/dev/kfd \
-            --device=/dev/dri \
-            --device=/dev/mkfd \
-            --group-add video \
-            -v /opt/hyhal:/opt/hyhal:ro \
-            --cap-add=SYS_PTRACE \
-            --security-opt seccomp=unconfined \
-            --ulimit stack=-1:-1 \
-            --ulimit memlock=-1:-1 \
-            --ipc=host \
-            --shm-size=100G \
-            --user=root \
-            -v "${GITHUB_WORKSPACE}:/workspace/AReaL-das" \
-            -v "${model_path}:/model:ro" \
-            -e VENV="${AREAL_CI_VENV}" \
-            -e SGLANG_HOME="${AREAL_CI_SGLANG_ROOT}/python" \
-            -e MODEL_PATH=/model \
-            -e CI_MODEL_CASE="${case_name}" \
-            -e CI_MODEL_GPUS="${case_gpus}" \
-            -e CI_EXAMPLE_CONFIG="${case_config}" \
-            -e AREAL_RUNS_ROOT="/workspace/AReaL-das/ci-artifacts/${case_name}/runs" \
-            -e AREAL_RUNTIME_ROOT="/workspace/AReaL-das/ci-runtime/${case_name}" \
-            -e AREAL_CACHE_ROOT="/workspace/AReaL-das/ci-cache/${case_name}" \
-            -e CI_SUCCESS_MARKER="/workspace/AReaL-das/ci-artifacts/${case_name}/smoke-success" \
-            -e PYTHONDONTWRITEBYTECODE=1 \
-            -w /workspace/AReaL-das \
-            "${AREAL_CI_IMAGE}" \
-            -c '
-              if [[ -x "${VENV}/bin/python" ]]; then
-                source "${VENV}/bin/activate"
-              fi
-              export PYTHONPATH="${PWD}:${SGLANG_HOME}:/opt/hyhal/share/smi:${PYTHONPATH:-}"
-              exec python3 .github/scripts/run_model_smoke.py
-            ' < /dev/null; then
+          if (
+            export MODEL_PATH="${model_path}"
+            export CI_MODEL_CASE="${case_name}"
+            export CI_MODEL_GPUS="${case_gpus}"
+            export CI_EXAMPLE_CONFIG="${case_config}"
+            export AREAL_RUNS_ROOT="${GITHUB_WORKSPACE}/ci-artifacts/${case_name}/runs"
+            export AREAL_RUNTIME_ROOT="${GITHUB_WORKSPACE}/ci-runtime/${case_name}"
+            export AREAL_CACHE_ROOT="${GITHUB_WORKSPACE}/ci-cache/${case_name}"
+            export CI_SUCCESS_MARKER="${GITHUB_WORKSPACE}/ci-artifacts/${case_name}/smoke-success"
+            export PYTHONDONTWRITEBYTECODE=1
+            export SGLANG_HOME="${AREAL_CI_SGLANG_ROOT}/python"
+            if [[ -x "${AREAL_CI_VENV}/bin/python" ]]; then
+              source "${AREAL_CI_VENV}/bin/activate"
+            fi
+            export PYTHONPATH="${PWD}:${SGLANG_HOME}:/opt/hyhal/share/smi:${PYTHONPATH:-}"
+            exec python3 .github/scripts/run_model_smoke.py
+          ); then
             if ! test -s "ci-artifacts/${case_name}/smoke-success"; then
               echo "::error::${case_name}: success marker is missing"
               failed=1
@@ -176,9 +118,9 @@ jobs:
             echo "::error::${case_name}: smoke test failed"
             failed=1
           fi
-          container_name=""
           done < ci-model-plan.tsv
           exit "${failed}"
+
       - name: Upload model smoke logs
         if: always()
         continue-on-error: true

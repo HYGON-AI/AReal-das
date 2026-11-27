@@ -18,42 +18,26 @@ jobs:
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
           (github.event.label.name == 'run-ci' && !github.event.pull_request.draft) }}
-    runs-on:
-      group: ci-general
-      labels: [self-hosted, ci]
+    # CPU-only Kubernetes runner; no HCU devices are required or exposed.
+    runs-on: hygon-cpu
     timeout-minutes: 45
+    container:
+      image: ${{ vars.HCU_BASE_IMAGE_V2 }}
+    defaults:
+      run:
+        shell: bash
     env:
-      CI_IMAGE: ${{ vars.HCU_BASE_IMAGE_V2 }}
-      CI_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE_V2 }}
       CI_PYTHON: ${{ vars.HCU_CI_PYTHON || 'python' }}
-      CI_PYTHONPATH: /workspace:/workspace/3rdparty/AReaL:/workspace/3rdparty/Megatron-LM-das:/workspace/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:/workspace/3rdparty/Megatron-bridge-das:/workspace/3rdparty/Megatron-bridge-das/hcu_megatron_bridge/src:/workspace/3rdparty/Megatron-bridge-das/3rdparty/Megatron-Bridge/src:/opt/sglang/python:/usr/local/
-      HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
+      HCU_CI_PYTHON: ${{ vars.HCU_CI_PYTHON || 'python' }}
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/3rdparty/AReaL:${{ github.workspace }}/3rdparty/Megatron-LM-das:${{ github.workspace }}/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:${{ github.workspace }}/3rdparty/Megatron-bridge-das:${{ github.workspace }}/3rdparty/Megatron-bridge-das/hcu_megatron_bridge/src:${{ github.workspace }}/3rdparty/Megatron-bridge-das/3rdparty/Megatron-Bridge/src:/opt/sglang/python:/usr/local/
+      LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PIP_INDEX_URL: https://pypi.org/simple
+      PRE_COMMIT_HOME: /tmp/pre-commit
+      RUFF_CACHE_DIR: /tmp/ruff-cache
+      HOME: /tmp
 
     steps:
-      - name: Prepare CI image and workspace
-        run: |
-          set -Eeuo pipefail
-          test -n "${CI_IMAGE:-}" || {
-            echo "::error::Repository variable HCU_BASE_IMAGE_V2 is not configured."
-            exit 2
-          }
-          if ! docker image inspect "${CI_IMAGE}" >/dev/null 2>&1; then
-            test -r "${CI_IMAGE_ARCHIVE}" || {
-              echo "::error::Docker image ${CI_IMAGE} is unavailable and archive ${CI_IMAGE_ARCHIVE} is not readable."
-              exit 2
-            }
-            echo "Loading ${CI_IMAGE} from ${CI_IMAGE_ARCHIVE}"
-            docker load -i "${CI_IMAGE_ARCHIVE}"
-          fi
-          mkdir -p "${GITHUB_WORKSPACE}"
-          docker run --rm \
-            --entrypoint /bin/bash \
-            -e HOST_UID="$(id -u)" \
-            -e HOST_GID="$(id -g)" \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            "${CI_IMAGE}" \
-            -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
-
       - name: Check out source
         uses: actions/checkout@v6
         with:
@@ -63,58 +47,25 @@ jobs:
 
       - name: Verify CI image Python
         run: |
-          docker image inspect "${CI_IMAGE}" >/dev/null
-          docker run --rm \
-            --entrypoint "${CI_PYTHON}" \
-            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
-            -e PYTHONPATH="${CI_PYTHONPATH}" \
-            "${CI_IMAGE}" -c \
+          "${CI_PYTHON}" -c \
             'import sys; print(sys.version); assert sys.version_info >= (3, 11)'
 
       - name: Run pre-commit checks
         run: |
-          docker run --rm \
-            --entrypoint /bin/bash \
-            -e HCU_CI_PYTHON="${CI_PYTHON}" \
-            --security-opt label=disable \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -e USER=github \
-            -e LOGNAME=github \
-            -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
-            -e PIP_INDEX_URL=https://pypi.org/simple \
-            -e PRE_COMMIT_HOME=/tmp/pre-commit \
-            -e RUFF_CACHE_DIR=/tmp/ruff-cache \
-            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
-            -e PYTHONPATH="${CI_PYTHONPATH}" \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            -w /workspace \
-            "${CI_IMAGE}" \
-            -c '
-              set -euo pipefail
-              git config --global --add safe.directory /workspace
-              git config --global http.version HTTP/1.1
-              "${HCU_CI_PYTHON}" -m venv /tmp/pre-commit-venv
-              /tmp/pre-commit-venv/bin/python -m pip install --index-url https://pypi.org/simple pre-commit
-              /tmp/pre-commit-venv/bin/pre-commit run --all-files
-            '
+          set -euo pipefail
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          git config --global http.version HTTP/1.1
+          "${HCU_CI_PYTHON}" -m venv /tmp/pre-commit-venv
+          /tmp/pre-commit-venv/bin/python -m pip install \
+            --index-url https://pypi.org/simple pre-commit
+          /tmp/pre-commit-venv/bin/pre-commit run --all-files
 
       - name: Check Python syntax
         run: |
-          docker run --rm \
-            --entrypoint "${CI_PYTHON}" \
-            --security-opt label=disable \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -e USER=github \
-            -e LOGNAME=github \
-            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
-            -e PYTHONPATH="${CI_PYTHONPATH}" \
-            -e PYTHONPYCACHEPREFIX=/tmp/pycache \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            -w /workspace \
-            "${CI_IMAGE}" \
-            -m compileall -q 3rdparty/AReaL/areal hcu_areal examples tests
+          "${CI_PYTHON}" -m compileall -q \
+            3rdparty/AReaL/areal hcu_areal examples tests
+        env:
+          PYTHONPYCACHEPREFIX: /tmp/pycache
 
       - name: Check HCU launcher syntax
         run: |
