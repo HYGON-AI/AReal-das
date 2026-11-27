@@ -20,20 +20,42 @@ concurrency:
 
 jobs:
   image-test:
+    # The ci-general runner group provides Docker and HCU access.
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
           (github.event.label.name == 'run-ci' && !github.event.pull_request.draft) }}
-    # Kubernetes runner with HCU device access; the job runs directly in the
-    # selected image, so no nested docker invocation is needed.
-    runs-on: hygon-bw1100-1card
+    runs-on:
+      group: ci-general
+      labels: [self-hosted, ci]
     timeout-minutes: 45
-    container:
-      image: ${{ inputs.base_image || vars.HCU_BASE_IMAGE_V2 }}
-    defaults:
-      run:
-        shell: bash
+    env:
+      BASE_IMAGE: ${{ inputs.base_image || vars.HCU_BASE_IMAGE_V2 }}
+      BASE_IMAGE_ARCHIVE: ${{ vars.HCU_BASE_IMAGE_ARCHIVE_V2 }}
 
     steps:
+      - name: Prepare base image and workspace
+        run: |
+          set -Eeuo pipefail
+          test -n "${BASE_IMAGE}" || {
+            echo "Set repository variable HCU_BASE_IMAGE_V2 or provide workflow_dispatch input base_image."
+            exit 1
+          }
+          if ! docker image inspect "${BASE_IMAGE}" >/dev/null 2>&1; then
+            test -r "${BASE_IMAGE_ARCHIVE}" || {
+              echo "::error::Docker image ${BASE_IMAGE} is unavailable and archive ${BASE_IMAGE_ARCHIVE} is not readable."
+              exit 2
+            }
+            echo "Loading ${BASE_IMAGE} from ${BASE_IMAGE_ARCHIVE}"
+            docker load -i "${BASE_IMAGE_ARCHIVE}"
+          fi
+          mkdir -p "${GITHUB_WORKSPACE}"
+          docker run --rm --entrypoint /bin/bash \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${BASE_IMAGE}" \
+            -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
+
       - name: Check out source
         uses: actions/checkout@v6
         with:
@@ -47,25 +69,51 @@ jobs:
           test -e /dev/dri
           test -e /dev/mkfd
           test -x /opt/hyhal/bin/hy-smi
-          timeout 15 /opt/hyhal/bin/hy-smi
+          /opt/hyhal/bin/hy-smi
+          docker version
 
       - name: Test imports and HCU visibility in image
         run: |
-          set -e
-          source /opt/dtk/env.sh
-          export PYTHONPATH="/opt/hyhal/share/smi${PYTHONPATH:+:${PYTHONPATH}}"
-          prepared_pythonpath="$(python -m hcu_areal.launch --pythonpath)"
-          export PYTHONPATH="${prepared_pythonpath}"
-          exec python .github/scripts/check_image.py
+          docker run --rm --entrypoint /bin/bash \
+            -e UMASK=000 \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            --shm-size=100g \
+            --network=host \
+            --privileged \
+            --device=/dev/kfd \
+            --device=/dev/dri \
+            --device=/dev/mkfd \
+            --group-add=video \
+            -v /opt/hyhal:/opt/hyhal:ro \
+            --cap-add=SYS_PTRACE \
+            --security-opt seccomp=unconfined \
+            --ulimit memlock=-1:-1 \
+            --ipc=host \
+            --user=root \
+            -v "${GITHUB_WORKSPACE}:/workspace/AReal-das:ro" \
+            -w /workspace/AReal-das \
+            "${BASE_IMAGE}" \
+            -c '
+              set -e
+              source /opt/dtk/env.sh
+              export PYTHONPATH="/opt/hyhal/share/smi${PYTHONPATH:+:${PYTHONPATH}}"
+              prepared_pythonpath="$(python -m hcu_areal.launch --pythonpath)"
+              export PYTHONPATH="${prepared_pythonpath}"
+              exec python .github/scripts/check_image.py
+            '
 
       - name: Test AReaL source and HCU launchers in image
         run: |
-          set -e
-          source /opt/dtk/env.sh
-          prepared_pythonpath="$(python -m hcu_areal.launch --pythonpath)"
-          export PYTHONPATH="${prepared_pythonpath}"
-          python -m compileall -q 3rdparty/AReaL/areal hcu_areal examples tests &&
-          find examples tests .github/scripts -type f -name "*.sh" -print0 | xargs -0 -r -n1 bash -n &&
-          python -c "import hcu_areal.engine.megatron_engine"
-        env:
-          PYTHONPYCACHEPREFIX: /tmp/hcu-ci-pycache
+          docker run --rm --entrypoint /bin/bash \
+            -e PYTHONPYCACHEPREFIX=/tmp/hcu-ci-pycache \
+            -v "${GITHUB_WORKSPACE}:/workspace/AReal-das:ro" \
+            -w /workspace/AReal-das \
+            "${BASE_IMAGE}" -c '
+            set -e
+            source /opt/dtk/env.sh
+            prepared_pythonpath="$(python -m hcu_areal.launch --pythonpath)"
+            export PYTHONPATH="${prepared_pythonpath}"
+            python -m compileall -q 3rdparty/AReaL/areal hcu_areal examples tests &&
+            find examples tests .github/scripts -type f -name "*.sh" -print0 | xargs -0 -r -n1 bash -n &&
+            python -c "import hcu_areal.engine.megatron_engine"
+          '
