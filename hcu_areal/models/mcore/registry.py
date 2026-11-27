@@ -22,6 +22,12 @@ class _BridgeProxy:
 
     def to_megatron_provider(self, *args, **kwargs):
         provider = self._bridge.to_megatron_provider(*args, **kwargs)
+        if (
+            getattr(provider, "experimental_attention_variant", None) == "dsv4_hybrid"
+            and provider.dsa_indexer_loss_coeff is None
+        ):
+            # The packed CSA path expects a numeric auxiliary-loss coefficient.
+            provider.dsa_indexer_loss_coeff = 0.0
         try:
             importlib.import_module("fused_weight_gradient_mlp_cuda")
         except ImportError:

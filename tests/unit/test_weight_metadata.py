@@ -42,6 +42,21 @@ def test_transfer_metadata_matches_names_shapes_and_dtype(check):
             check([changed], [item])
 
 
+def test_deepseek_transfer_metadata_matches_inference_replicas():
+    item = SimpleNamespace(name="weight", global_shape=(4, 8), dtype="bf16")
+    replica = SimpleNamespace(name="weight", global_shape=(4, 8), dtype="bf16")
+    assert assert_deepseek_transfer_metadata([item, replica], [item]) == 1
+
+    for changed in (
+        SimpleNamespace(name="weight", global_shape=(8, 4), dtype="bf16"),
+        SimpleNamespace(name="weight", global_shape=(4, 8), dtype="fp32"),
+    ):
+        with pytest.raises(ValueError, match="conflicting infer metadata"):
+            assert_deepseek_transfer_metadata([changed, replica], [item])
+    with pytest.raises(ValueError, match="duplicate train name"):
+        assert_deepseek_transfer_metadata([item], [item, replica])
+
+
 def test_model_weight_names_are_normalized():
     assert (
         gemma3_train_to_infer_name("model.language_model.layers.0.weight")

@@ -45,7 +45,8 @@ AReaL-das/
 ├── 3rdparty/                 # 固定的 AReaL 和 Megatron DAS 子模块
 ├── hcu_areal/                # HCU 运行时适配
 ├── examples/                 # HCU 示例配置与使用说明
-├── tests/                # HCU 测试与验证
+├── scripts/                  # 四层检查点准备脚本
+├── tests/                    # HCU 测试与验证
 ├── docs/                     # 文档目录
 ├── requirements.txt          # Python 依赖
 ├── LICENSE                   # Apache-2.0 许可证
@@ -56,18 +57,23 @@ AReaL-das/
 
 推理后端使用 SGLang-DAS，训练算法为 GRPO。✅ 两步短测已验证（点击查看启动方式） | 🚧 开发中 | 🔍 暂未验证
 
-| 模型          |               FSDP 训练               |                Megatron 训练                | 说明                                                   |
-| ------------- | :-----------------------------------: | :-----------------------------------------: | ------------------------------------------------------ |
-| Qwen2.5-1.5B  | [✅](examples/README.md#qwen25-fsdp)  |  [✅](examples/README.md#qwen25-megatron)   |                                                        |
-| Qwen3-8B      |  [✅](examples/README.md#qwen3-fsdp)  |   [✅](examples/README.md#qwen3-megatron)   |                                                        |
-| Qwen3.5-4B    | [✅](examples/README.md#qwen35-fsdp)  |                     🔍                      | 测试时使用 SGLang 临时兼容修改                         |
-| Qwen3-30B-A3B |                  🔍                   | [✅](examples/README.md#qwen3-moe-megatron) | 单机 4+4 卡短训已验证，启用优化器 CPU 卸载，双机待验证 |
-| Qwen3-VL-4B   | [✅](examples/README.md#qwen3vl-fsdp) |                     🔍                      | 真实图片短测                                           |
-| Gemma3-4B     | [✅](examples/README.md#gemma3-fsdp)  |                     🔍                      | 真实图片短测，仍有重分词风险                           |
-| DeepSeek R1   |                  🔍                   | [🔍](examples/README.md#deepseek-megatron)  | 完整官方 FP8 待验证，四层 BF16 短测已通过              |
-| GLM-5         |                  🔍                   |   [✅](examples/README.md#glm5-megatron)    | 四层 BF16 检查点，单机 4+4 卡两步已验证，双机待验证    |
+| 模型              |               FSDP 训练               |                    Megatron 训练                    | 说明                                                               |
+| ----------------- | :-----------------------------------: | :-------------------------------------------------: | ------------------------------------------------------------------ |
+| Qwen2.5-1.5B      | [✅](examples/README.md#qwen25-fsdp)  |      [✅](examples/README.md#qwen25-megatron)       |                                                                    |
+| Qwen3-8B          |  [✅](examples/README.md#qwen3-fsdp)  |       [✅](examples/README.md#qwen3-megatron)       |                                                                    |
+| Qwen3-30B-A3B     |                  🔍                   |     [✅](examples/README.md#qwen3-moe-megatron)     | 单机 4+4 卡短训已验证，双机待验证                                  |
+| Qwen3-VL-4B       | [✅](examples/README.md#qwen3vl-fsdp) |                         🔍                          | 真实图片短测，存在重分词提示                                       |
+| Qwen3.5-4B        | [✅](examples/README.md#qwen35-fsdp)  |                         🔍                          | 审计镜像 4 卡两步流程已验证，两步梯度均为 0                        |
+| Qwen3.5-35B-A3B   |                  🔍                   |    [✅](examples/README.md#qwen35-moe-megatron)     | 完整检查点，4+2 卡两步已验证，示例默认 8 卡                        |
+| Qwen3.6-35B-A3B   |                  🔍                   |    [✅](examples/README.md#qwen36-moe-megatron)     | 完整检查点，4+2 卡两步已验证，示例默认 8 卡                        |
+| Qwen3.8-27B       |                  🔍                   |      [✅](examples/README.md#qwen38-megatron)       | 完整 BF16 检查点，4+2 卡两步已验证，示例默认 8 卡                  |
+| Gemma3-4B         | [✅](examples/README.md#gemma3-fsdp)  |                         🔍                          | 真实图片短测，仍有重分词风险                                       |
+| DeepSeek R1       |                  🔍                   |     [🔍](examples/README.md#deepseek-megatron)      | 四层 FP8 检查点已验证可生成，端到端训练待验证                      |
+| DeepSeek‑V4‑Flash |                  🔍                   | [✅](examples/README.md#deepseek-v4-flash-megatron) | 四层，默认 8 卡，4+2 卡流程已验证，两步梯度均为 0，需挂载 Core dev |
+| GLM-5             |                  🔍                   |       [✅](examples/README.md#glm5-megatron)        | 四层 BF16 检查点，单机 4+4 卡两步已验证，双机待验证                |
 
-短测结果主要基于 SGLang-DAS `5c859f` 实验镜像；不代表精度、收敛或其他并行配置已验证。🔍 表示尚未验证，不代表不支持。
+短测结果的镜像版本、并行配置和验证范围见各模型示例。GLM-5、DeepSeek‑V4‑Flash 和 DeepSeek‑R1
+的权重准备步骤见[四层模型检查点](docs/four-layer-checkpoints.md)。
 
 ## 上游项目与版权
 

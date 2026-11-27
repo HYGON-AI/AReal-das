@@ -119,7 +119,16 @@ def assert_deepseek_transfer_metadata(infer_meta, train_meta):
         result = {}
         for item in entries:
             if item.name in result:
-                raise ValueError(f"DeepSeek AWEX duplicate {role} name: {item.name}")
+                if role == "train":
+                    raise ValueError(f"DeepSeek AWEX duplicate train name: {item.name}")
+                previous = result[item.name]
+                # The gateway concatenates metadata from each rollout replica.
+                if tuple(previous.global_shape) != tuple(item.global_shape) or str(
+                    previous.dtype
+                ) != str(item.dtype):
+                    raise ValueError(
+                        f"DeepSeek AWEX conflicting infer metadata: {item.name}"
+                    )
             result[item.name] = item
         return result
 

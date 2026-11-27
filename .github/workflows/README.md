@@ -8,6 +8,19 @@ HCU patch tests live under `tests/unit/`; hardware training checks use the model
 workflow. CI entrypoint scripts live under `.github/scripts/`. Upstream tests belong to
 the AReaL submodule.
 
+## Pull request target and runtime
+
+The HCU workflows use the pull request target to select the runtime and checks.
+
+| Target   | Image and archive variables                      | GRPO smoke test                                               |
+| -------- | ------------------------------------------------ | ------------------------------------------------------------- |
+| `v1.0.4` | `HCU_BASE_IMAGE`, `HCU_BASE_IMAGE_ARCHIVE`       | Two-step Qwen3-8B from `AREAL_CI_MODEL_PATH`                  |
+| `v2.1.0` | `HCU_BASE_IMAGE_V2`, `HCU_BASE_IMAGE_ARCHIVE_V2` | Cases selected by `CI_MODELS` under `AREAL_CI_MODELS_ROOT_V2` |
+
+Pushing a commit to an open pull request's source branch triggers checks for its target.
+The legacy image build, CPU tests, pre-commit checks and Qwen3-8B command use the v1
+source layout. The rest of this guide describes v2.1.0.
+
 Both the CPU unit workflow and the model smoke workflow run for every opened,
 synchronized, reopened or ready-for-review pull request, including draft pull requests.
 The repository ruleset file lists the source, CPU unit and model smoke checks as
@@ -21,10 +34,15 @@ independently.
 `.github/model-cases.yaml` is the case registry (JSON syntax, valid YAML). Each entry
 names an example configuration, a model path relative to the shared model root, and its
 GPU count. The shared Python runner supports single-node, eight-HCU GSM8K examples. Each
-new case references the example YAML and a model directory under the shared root. It
-must not label a reduced checkpoint as a full model. The registry currently contains
-only `qwen3-4b-megatron`; other models are not implied to be supported until their cases
-are added and verified.
+new case references the example YAML and a model directory under the shared root. The
+registry uses full checkpoints for the following cases.
+
+| Case                      | Checkpoint      |
+| ------------------------- | --------------- |
+| `qwen3-4b-megatron`       | Qwen3-4B        |
+| `qwen35-35b-a3b-megatron` | Qwen3.5-35B-A3B |
+| `qwen36-35b-a3b-megatron` | Qwen3.6-35B-A3B |
+| `qwen38-27b-megatron`     | Qwen3.8-27B     |
 
 ## `hcu-source-checks.yml`
 
@@ -72,8 +90,8 @@ Runs the selected model smoke cases on an eligible 8-HCU runner from the `ci-gen
 group. The default case runs two-step Qwen3-4B GRPO (Megatron actor + SGLang rollout).
 It uses `pull_request_target` so fork pull requests can use the target repository's CI
 variables, then explicitly checks out the pull request merge commit. HCU workflows run
-automatically only during the pull request stage; merging to `main` does not run them
-again. Maintainers can still start them manually with `workflow_dispatch`.
+automatically on pull request activity. Maintainers can start them manually with
+`workflow_dispatch`.
 
 Configure the image, shared archive, and model directory as repository variables. The
 `_V2` variables are separate from the variables used by the legacy workflows. Each case
@@ -127,6 +145,6 @@ container image.
 
 ## Organization quality gate
 
-Pull requests targeting `main` also trigger `quality-gate.yml` on opening,
+Pull requests targeting `v2.1.0` also trigger `quality-gate.yml` on opening,
 synchronization, reopening and marking ready for review. Its `Checks` job calls the
-shared HYGON-AI PR quality workflow at v2.0.3 independently of the HCU jobs.
+shared HYGON-AI PR quality workflow at `@stable` independently of the HCU jobs.

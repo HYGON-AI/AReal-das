@@ -3,5 +3,20 @@
     "config": "examples/configs/gsm8k_qwen3_megatron.yaml",
     "model_path": "qwen3/Qwen3-4B",
     "gpus": 8
+  },
+  "qwen35-35b-a3b-megatron": {
+    "config": "examples/configs/gsm8k_qwen35_moe_megatron.yaml",
+    "model_path": "qwen3.5/Qwen3.5-35B-A3B",
+    "gpus": 8
+  },
+  "qwen36-35b-a3b-megatron": {
+    "config": "examples/configs/gsm8k_qwen36_moe_megatron.yaml",
+    "model_path": "qwen3.6/Qwen3.6-35B-A3B",
+    "gpus": 8
+  },
+  "qwen38-27b-megatron": {
+    "config": "examples/configs/gsm8k_qwen38_megatron.yaml",
+    "model_path": "qwen3.8/Qwen3.8-27B",
+    "gpus": 8
   }
 }

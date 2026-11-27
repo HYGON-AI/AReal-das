@@ -20,8 +20,8 @@
 原 `features_manager/` 中的登记逻辑已合并至 `areal_adaptor.py`。共享 AWEX 适配按模型开关统一分派，Gemma3
 单独启用时也会登记所需的推理适配。旧自动启动目录和全局延迟导入机制已移除；模型和部署环境仍需分别验证。
 
-共享钩子的诊断标识按启用模型选择：推理适配优先使用 Qwen3.5、GLM5、DeepSeek、Gemma3 的标识；Megatron 权重更新优先使用 GLM5，否则使用
-DeepSeek。标识用于定位注册项，实际分派还会检查对应模型开关。
+共享钩子的诊断标识按启用模型选择：推理适配依次选择 Qwen3.5、GLM5、DeepSeek、Gemma3 的标识。Megatron 权重更新依次选择
+GLM5、DeepSeek、Qwen3.5 的标识。标识用于定位注册项，实际分派还会检查对应模型开关。
 
 项目使用 `3rdparty/AReaL`、`3rdparty/Megatron-LM-das` 和 `3rdparty/Megatron-bridge-das`
 子模块；SGLang 由镜像提供。克隆后先运行 `git submodule update --init --recursive`。启动器在
@@ -42,11 +42,18 @@ controller、gateway 和 Gemma3 视觉工作流采用对应路径中的显式适
 时需重新审阅这些适配。模型适配按目标模型分发，具体精度与布局边界见专项验证材料。
 
 DeepSeek R1 的官方检查点使用 FP8 E4M3、128×128 分块和 `weight_scale_inv`。训练端加载交给固定版本的
-Megatron-Bridge-das，按 scale 将检查点反量化为 BF16。AWEX 权重同步由相应训练和推理适配器处理。
+Megatron-Bridge-das。AWEX 权重同步由相应训练和推理适配器处理。完整官方 FP8 检查点的端到端训练待验证。
 
-DeepSeek BF16 MLA 使用 SGLang-DAS 自带的 HCU 算子。数值检查使用的 SGLang-DAS 提交为
-`453edca64008bdaf162bb42dcebda14bd1b4927a`；该提交仍需在后端初始化时补齐 KV cache 引用。依赖旧版 DCU 补丁的
-SGLang 镜像不在此路径的验证范围内。
+## Megatron v2 AWEX 模型适配
+
+- Qwen3.5/3.6‑35B‑A3B 的 `qwen3_5_moe` 和 Qwen3.8‑27B 的 `qwen3_5` 共用 Megatron 导出流程。它们分别使用
+  Bridge 的 MoE 和 dense 语言模型映射，并共用视觉塔映射。导出会把融合的注意力与 Gated DeltaNet 权重拆成 SGLang
+  可接收的布局。此路径支持未量化、关闭 LoRA 和 MTP 的训练。Qwen3.8 示例使用 TP2 × PP2，AWEX 按流水线阶段聚合权重，以控制临时显存。
+- DeepSeek‑V4‑Flash 使用 Bridge 流式导出。发送端按 UE8M0 比例量化，接收端写入 SGLang
+  融合投影和专家权重的视图。已验证路径使用每个推理副本 TP2、PP1、EP1 和镜像的 FP4 专家转 FP8 路径。
+- DeepSeek‑V4‑Flash 示例设置 `HCU_AREAL_MCORE_DEV_COMPAT=1`。该开关适配
+  [示例指定的 Core dev](../examples/README.md#deepseek-v4-flash-megatron)，恢复 AReaL v2.1.0 所需的
+  checkpoint 工厂，在无梯度上下文构建 CPU 卸载优化器，并使用 Core 自带的梯度范数和裁剪实现。
 
 ## Megatron 优化器 CPU 卸载
 
