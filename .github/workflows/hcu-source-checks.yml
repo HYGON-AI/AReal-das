@@ -2,139 +2,79 @@ name: HCU Source Checks
 
 on:
   workflow_dispatch:
-  pull_request_target:
-    branches: [v1.0.4, v2.1.0]
-    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request:
+    types: [labeled]
 
 permissions:
   contents: read
 
 concurrency:
-  group: hcu-source-checks-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: hcu-source-checks-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || github.event_name }}
   cancel-in-progress: true
 
 jobs:
   quality:
     name: Source, Python, and shell checks
-    runs-on:
-      group: ci-general
-      labels: [self-hosted, ci]
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.label.name == 'run-ci' && !github.event.pull_request.draft) }}
+    # CPU-only Kubernetes runner; no HCU devices are required or exposed.
+    runs-on: hygon-cpu
     timeout-minutes: 45
+    container:
+      image: ${{ vars.HCU_BASE_IMAGE_V2 }}
+    defaults:
+      run:
+        shell: bash
     env:
-      CI_IMAGE: ${{ vars[(github.base_ref || github.ref_name) == 'v1.0.4' && 'HCU_BASE_IMAGE' || 'HCU_BASE_IMAGE_V2'] }}
-      CI_IMAGE_ARCHIVE: ${{ vars[(github.base_ref || github.ref_name) == 'v1.0.4' && 'HCU_BASE_IMAGE_ARCHIVE' || 'HCU_BASE_IMAGE_ARCHIVE_V2'] }}
-      CI_TARGET_BRANCH: ${{ github.base_ref || github.ref_name }}
-      CI_PYTHON: ${{ (github.base_ref || github.ref_name) == 'v1.0.4' && '/opt/areal-venv-py31115/bin/python' || vars.HCU_CI_PYTHON || 'python' }}
-      CI_PYTHONPATH: ${{ (github.base_ref || github.ref_name) == 'v1.0.4' && '/opt/hcu_megatron:/workspace:/opt/hcu_megatron/Megatron-Bridge/src:/opt/hcu_megatron/Megatron-LM:/opt/sglang/python:/usr/local/' || '/workspace:/workspace/3rdparty/AReaL:/workspace/3rdparty/Megatron-LM-das:/workspace/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:/workspace/3rdparty/Megatron-bridge-das:/workspace/3rdparty/Megatron-bridge-das/hcu_megatron_bridge/src:/workspace/3rdparty/Megatron-bridge-das/3rdparty/Megatron-Bridge/src:/opt/sglang/python:/usr/local/' }}
-      HCU_LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
+      CI_PYTHON: ${{ vars.HCU_CI_PYTHON || 'python' }}
+      HCU_CI_PYTHON: ${{ vars.HCU_CI_PYTHON || 'python' }}
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/3rdparty/AReaL:${{ github.workspace }}/3rdparty/Megatron-LM-das:${{ github.workspace }}/3rdparty/Megatron-LM-das/3rdparty/Megatron-LM:${{ github.workspace }}/3rdparty/Megatron-bridge-das:${{ github.workspace }}/3rdparty/Megatron-bridge-das/hcu_megatron_bridge/src:${{ github.workspace }}/3rdparty/Megatron-bridge-das/3rdparty/Megatron-Bridge/src:/opt/sglang/python:/usr/local/
+      LD_LIBRARY_PATH: /opt/dtk/.hyhal/rocm_smi/lib:/opt/dtk/.hyhal/hydm/lib:/opt/dtk/.hyhal/lib:/usr/local/lib:/usr/local/lib64:/opt/dtk/dcc/gcvm/lib:/opt/dtk/hip/lib:/opt/dtk/llvm/lib:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/opt/hyhal/lib64:/opt/dtk/dushmem/lib:/opt/dtk/opencl/lib:/opt/ucx/lib:/opt/mpi/lib:/opt/hwloc/lib
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PIP_INDEX_URL: https://pypi.org/simple
+      PRE_COMMIT_HOME: /tmp/pre-commit
+      RUFF_CACHE_DIR: /tmp/ruff-cache
+      HOME: /tmp
 
     steps:
-      - name: Prepare CI image and workspace
-        run: |
-          set -Eeuo pipefail
-          test -n "${CI_IMAGE:-}" || {
-            echo "::error::HCU image variable for the selected branch is not configured."
-            exit 2
-          }
-          if ! docker image inspect "${CI_IMAGE}" >/dev/null 2>&1; then
-            test -r "${CI_IMAGE_ARCHIVE}" || {
-              echo "::error::Docker image ${CI_IMAGE} is unavailable and archive ${CI_IMAGE_ARCHIVE} is not readable."
-              exit 2
-            }
-            echo "Loading ${CI_IMAGE} from ${CI_IMAGE_ARCHIVE}"
-            docker load -i "${CI_IMAGE_ARCHIVE}"
-          fi
-          mkdir -p "${GITHUB_WORKSPACE}"
-          docker run --rm \
-            --entrypoint /bin/bash \
-            -e HOST_UID="$(id -u)" \
-            -e HOST_GID="$(id -g)" \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            "${CI_IMAGE}" \
-            -c 'chown -Rh "${HOST_UID}:${HOST_GID}" /workspace'
-
       - name: Check out source
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
-          allow-unsafe-pr-checkout: true
+          ref: ${{ github.sha }}
+          persist-credentials: false
           submodules: recursive
 
       - name: Verify CI image Python
         run: |
-          docker image inspect "${CI_IMAGE}" >/dev/null
-          docker run --rm \
-            --entrypoint "${CI_PYTHON}" \
-            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
-            -e PYTHONPATH="${CI_PYTHONPATH}" \
-            "${CI_IMAGE}" -c \
+          "${CI_PYTHON}" -c \
             'import sys; print(sys.version); assert sys.version_info >= (3, 11)'
 
       - name: Run pre-commit checks
         run: |
-          docker run --rm \
-            --entrypoint /bin/bash \
-            -e HCU_CI_PYTHON="${CI_PYTHON}" \
-            --security-opt label=disable \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -e USER=github \
-            -e LOGNAME=github \
-            -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
-            -e PIP_INDEX_URL=https://pypi.org/simple \
-            -e PRE_COMMIT_HOME=/tmp/pre-commit \
-            -e RUFF_CACHE_DIR=/tmp/ruff-cache \
-            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
-            -e PYTHONPATH="${CI_PYTHONPATH}" \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            -w /workspace \
-            "${CI_IMAGE}" \
-            -c '
-              set -euo pipefail
-              git config --global --add safe.directory /workspace
-              git config --global http.version HTTP/1.1
-              "${HCU_CI_PYTHON}" -m venv /tmp/pre-commit-venv
-              /tmp/pre-commit-venv/bin/python -m pip install --index-url https://pypi.org/simple pre-commit
-              /tmp/pre-commit-venv/bin/pre-commit run --all-files
-            '
+          set -euo pipefail
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          git config --global http.version HTTP/1.1
+          "${HCU_CI_PYTHON}" -m venv /tmp/pre-commit-venv
+          /tmp/pre-commit-venv/bin/python -m pip install \
+            --index-url https://pypi.org/simple pre-commit
+          /tmp/pre-commit-venv/bin/pre-commit run --all-files
 
       - name: Check Python syntax
         run: |
-          paths=(3rdparty/AReaL/areal hcu_areal examples tests)
-          if [[ "${CI_TARGET_BRANCH}" == v1.0.4 ]]; then
-            paths=(areal hcu_example)
-          fi
-          docker run --rm \
-            --entrypoint "${CI_PYTHON}" \
-            --security-opt label=disable \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -e USER=github \
-            -e LOGNAME=github \
-            -e LD_LIBRARY_PATH="${HCU_LD_LIBRARY_PATH}" \
-            -e PYTHONPATH="${CI_PYTHONPATH}" \
-            -e PYTHONPYCACHEPREFIX=/tmp/pycache \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            -w /workspace \
-            "${CI_IMAGE}" \
-            -m compileall -q "${paths[@]}"
+          "${CI_PYTHON}" -m compileall -q \
+            3rdparty/AReaL/areal hcu_areal examples tests
+        env:
+          PYTHONPYCACHEPREFIX: /tmp/pycache
 
       - name: Check HCU launcher syntax
         run: |
-          paths=(examples tests .github/scripts)
-          if [[ "${CI_TARGET_BRANCH}" == v1.0.4 ]]; then
-            paths=(hcu_example)
-          fi
-          find "${paths[@]}" -type f -name "*.sh" -print0 |
+          find examples tests .github/scripts -type f -name "*.sh" -print0 |
             xargs -0 -r -n1 bash -n
 
       - name: Check public HCU requirements policy
         run: |
-          requirements=requirements.txt
-          if [[ "${CI_TARGET_BRANCH}" == v1.0.4 ]]; then
-            requirements=requirements-hcu.txt
-          fi
-          if grep -nE '^.*\+das|^.*dtk[0-9]|^(torch|torchvision|triton|flash_attn|transformer_engine|hcu-megatron)==' "${requirements}"; then
-            echo "${requirements} must not contain internal HCU build pins."
+          if grep -nE '^.*\+das|^.*dtk[0-9]|^(torch|torchvision|triton|flash_attn|transformer_engine|hcu-megatron)==' requirements.txt; then
+            echo "requirements.txt must not contain internal HCU build pins."
             exit 1
           fi
